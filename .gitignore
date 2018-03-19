@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+/.metadata/
+Firmwares/mainTrain/.*
+Firmwares/mainTrain/sloeber.ino.cpp
+Firmwares/mainTrain/Release/
+RemoteSystemsTempFiles/
