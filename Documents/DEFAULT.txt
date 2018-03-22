@@ -1,0 +1,22 @@
+**PIDS DATA**
+TRAIN 41;94:91
+Kanchana express;56:50:76:31:6:8:85:56:84:42
+PBT-THRD
+PBT  08:00;100:98:101:100:100
+THRD 11:45;91:91:101:94:95
+//DATA//
+Porbatipur,AWAL,,,,,,,,;46:50:34:75:52:47:35
+Manmathpur,ANTARA,,,,,,,;36:74:28:47:35
+Chirir Bandar,ANTARA,,,,,,,;51:17:59:35:35:6:34:69:35 
+Kaugaon,ANTARA,,,,,,,;56:50:45:14:65  
+Dinajpur,ANTARA,,,,,,;51:29:31:50:48:6:47:35 
+Kanchan,ANTARA,,,,,;56:50:76:31
+Baznahar,ANTARA,,,,,,;34:50:48:31:50:4:50:35
+Mangalpur,ANTARA,,,,,,;36:77:38:47:35 
+Mollapara,ANTARA,,,,,,;48:50:31:50:59:14:59:18:59:36:50:39:50:46:50:44:50 
+Setabganj,ANTARA,,,,,,,;59:42:27:50:34:14:34
+Sultanpur school,ANTARA,,,,,,;78:38:27:50:31:6:47:35:80:38
+Pirganj,ANTARA,,,,,,,;79:52:35:14:54
+Bhomradaha,ANTARA,,,,,,,;59:37:50:36:35:50:29:4
+Shibgonj,ANTARA,,,,,,;51:40:34:6:14:54
+Thakurgaon road,AKHIR,,,,,,,,;22:50:57:35:6:14:65:10:6:59:35:50:43
