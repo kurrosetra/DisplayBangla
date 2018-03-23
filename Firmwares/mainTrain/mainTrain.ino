@@ -10,7 +10,7 @@
 #if DEBUG
 # define LCD_DEBUG		1
 # define SD_DEBUG		1
-# define BUTTON_DEBUG	1
+# define BUTTON_DEBUG	0
 #endif	//#if DEBUG
 
 /**
@@ -19,8 +19,7 @@
 const byte LCD_BACKLIGHT_PIN = A7;
 const byte LCD_SS_PIN = 48;
 const byte SD_SS_PIN = 53;
-const byte button[4] = { A3/*RIGHT / SELECT*/, A2/*LEFT / BACK*/,
-		A0/*UP / PREV*/, A1 /*DOWN / NEXT*/};
+const byte button[4] = { A1/*RIGHT / SELECT*/, A3/*LEFT / BACK*/, A0 /*DOWN / NEXT*/, A2 /*UP / PREV*/};
 const uint32_t DEBOUNCE_DELAY = 100;
 
 /**
@@ -31,11 +30,11 @@ const uint32_t DEBOUNCE_DELAY = 100;
 
 enum DISPLAY_STEP
 {
-	DISP_STEP_NONE,
-	DISP_STEP_NEXT,
-	DISP_STEP_PREV,
-	DISP_STEP_SELECT,
-	DISP_STEP_BACK
+	DISP_STEP_NONE = 0,
+	DISP_STEP_SELECT = 0b1,
+	DISP_STEP_BACK = 0b10,
+	DISP_STEP_NEXT = 0b100,
+	DISP_STEP_PREV = 0b1000
 };
 
 enum DISPLAY_STATE
@@ -46,7 +45,6 @@ enum DISPLAY_STATE
 	DISP_MENU_TRAIN_NAME,
 	DISP_MENU_TRAIN_ROUTE,
 	DISP_MENU_CURRENT_STATION,
-	DISP_MENU_DISPLAY_LANGUAGE,
 	DISP_MENU_MENU_LANGUAGE,
 	DISP_MENU_MASTER_MODE,
 	DISP_MENU_GPS_MODE,
@@ -81,31 +79,34 @@ struct Coach_List
 
 struct Train_Info
 {
-	uint16_t trainID;	// train's position in train.txt
-	char * trainName;	// train's name
-	char * trainNum;	// train's number
-	char * currentStation;	// current station's name
+	String trainFiles;	// filename of selected's train
+	String trainName;	// train's name
+	String trainNum;	// train's number
+	String currentStation;	// current station's name
 	uint16_t currentStationPosition;  // position of current station in "default.PID"
+	String routeStart;	// first station name
+	String routeEnd;	// last station name
 	bool trainRoute;	// train's route (down=0, up=1)
 };
 
 struct Train_Detail
 {
-	byte menuLang;		// menu language (0=en, 1=ba)
-	byte dispLang;		// display language (0=en, 1=ba)
+	byte lang;		// menu language (0=en, 1=ba)
 	Train_Info trainInfo;		// current train's info
 	Coach_List currentCoach;	// current coach's info
 	bool masterMode;	// master/slave mode (slave=0, master=1)
 	bool gpsMode;		// gps/manual mode (manual=0, gps=1)
 };
-static const byte menu_setting_length = 9;
-const char *menu_setting_en[menu_setting_length] = { "Train Name",
-		"Train Route", "Current Station", "Display Language", "Menu Language",
+static const byte menu_setting_length = 8;
+const char *menu_setting_en[menu_setting_length] = { "Train Name", "Train Route", "Current Station", "Language",
 		"Master / Slave Mode", "Manual / GPS Mode", "Coach ID", "System Info" };
-String menu_setting_bl[menu_setting_length] = {
+const String menu_setting_bl[menu_setting_length] = {
 
 };
-byte displayState = DISP_MAIN;
+static const byte menu_coach_list_length = 20;
+String menu_coach_list[menu_coach_list_length];
+
+byte displayState = DISP_IDLE;
 Train_Detail trainDetail;
 byte currentDisplayState = DISP_IDLE;
 byte menuPointer = 0;
@@ -116,22 +117,12 @@ U8GLIB_ST7920_128X64_4X lcd(LCD_SS_PIN);
  * BUTTON Global Variables
  * *******************************************************************************
  */
-enum BUTTON_VALUE
-{
-	BUTTON_NONE = 0,
-	BUTTON_RIGHT = 0b1,
-	BUTTON_LEFT = 0b10,
-	BUTTON_UP = 0b100,
-	BUTTON_DOWN = 0b1000
-};
 
 /**
  * *******************************************************************************
  * SD Card Global variables
  * *******************************************************************************
  */
-File root;
-File myFile;
 
 void setup()
 {
@@ -148,6 +139,10 @@ void setup()
 	sdInit();
 	btnInit();
 	lcdInit();
+
+	lcdPageUpdate(DISP_STEP_NEXT);
+
+	Serial.println(F("no error"));
 }
 
 void loop()
@@ -163,7 +158,7 @@ void loop()
 void lcdInit()
 {
 	pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-	lcdBacklight(1);
+	lcdBacklight(0);
 }
 
 void lcdBacklight(bool onf)
@@ -179,7 +174,7 @@ void lcdPageUpdate(byte dispStep)
 		if (dispStep != DISP_STEP_NONE) {
 			//change display to main page with backlight ON
 			lcdBacklight(HIGH);
-//			menuChange(pageMain);
+			lcdPageChange (lcdPageMain);
 			displayState = DISP_MAIN;
 		}	//(dispStep != DISP_STEP_NONE)
 		break;
@@ -211,16 +206,20 @@ void lcdPageUpdate(byte dispStep)
 		case DISP_STEP_PREV:
 			if (menuPointer == 0)
 				menuPointer = menu_setting_length - 1;
+			else
+				menuPointer--;
 			lcdPageChange(lcdPageMenu);
 			break;
 		case DISP_STEP_BACK:
 			//back to DISP_MAIN state
 			menuPointer = 0;
 			lcdPageChange (lcdPageMain);
+			displayState = DISP_MAIN;
 			break;
 		case DISP_STEP_SELECT:
-			displayState = menuPointer + 3;
-			lcdPageChange (lcdPageSubMenu);
+//			displayState = menuPointer + 3;
+//			lcdPageChange (lcdPageSubMenu);
+//			displayState=
 			break;
 		}
 		break;
@@ -247,7 +246,7 @@ void lcdPageMain()
 	lcd.setFont(u8g_font_ncenB08);
 	lcd.setFontRefHeightText();
 	lcd.setFontPosTop();
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		s = F("Bangladesh Railway");
 	else
 		s = F("~Bangladesh Railway~");
@@ -256,38 +255,35 @@ void lcdPageMain()
 
 	//SUB-HEADER
 	lcd.setFont(u8g_font_5x7r);
-	if (trainDetail.menuLang == ENGLISH_LANG)
-		s = F("Display Controller");
-	else
-		s = F("~Display Controller~");
+	s = trainDetail.trainInfo.trainName;
 	d = (w - lcd.getStrWidth(s.c_str())) / 2;
 	lcd.drawStr(d, 25, s.c_str());
 	//KONTEN 1
 	//KONTEN 2
 	if (trainDetail.masterMode) {
-		if (trainDetail.menuLang == ENGLISH_LANG)
+		if (trainDetail.lang == ENGLISH_LANG)
 			s = F("Master");
 		else
 			s = F("~Master~");
 	}
 	else {
-		if (trainDetail.menuLang == ENGLISH_LANG)
+		if (trainDetail.lang == ENGLISH_LANG)
 			s = F("Slave");
 		else
 			s = F("~Slave~");
 	}
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		s += ';';
 	else
 		s += "~;~";
 	if (trainDetail.gpsMode) {
-		if (trainDetail.menuLang == ENGLISH_LANG)
+		if (trainDetail.lang == ENGLISH_LANG)
 			s += F("GPS");
 		else
 			s += F("~GPS~");
 	}
 	else {
-		if (trainDetail.menuLang == ENGLISH_LANG)
+		if (trainDetail.lang == ENGLISH_LANG)
 			s += F("Manual");
 		else
 			s += F("~Manual~");
@@ -304,20 +300,20 @@ void lcdPageMenu()
 	lcd.setFont(u8g_font_ncenB08);
 	lcd.setFontRefHeightText();
 	lcd.setFontPosTop();
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		title = F("Select Menu:");
 	else
 		title = F("~Select Menu~");
 	lcd.drawStr(0, 0, title.c_str());
 
 	//MENU CONTENT
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		s[1] = menu_setting_en[menuPointer];
 	else
 		s[1] = menu_setting_bl[menuPointer];
 
 	if (menuPointer == 0) {
-		if (trainDetail.menuLang == ENGLISH_LANG) {
+		if (trainDetail.lang == ENGLISH_LANG) {
 			s[0] = menu_setting_en[menu_setting_length - 1];
 			s[2] = menu_setting_en[menuPointer + 1];
 		}
@@ -327,13 +323,23 @@ void lcdPageMenu()
 		}
 	}
 	else if (menuPointer >= menu_setting_length - 1) {
-		if (trainDetail.menuLang == ENGLISH_LANG) {
+		if (trainDetail.lang == ENGLISH_LANG) {
 			s[0] = menu_setting_en[menuPointer - 1];
 			s[2] = menu_setting_en[0];
 		}
 		else {
 			s[0] = menu_setting_bl[menuPointer - 1];
 			s[2] = menu_setting_bl[0];
+		}
+	}
+	else {
+		if (trainDetail.lang == ENGLISH_LANG) {
+			s[0] = menu_setting_en[menuPointer - 1];
+			s[2] = menu_setting_en[menuPointer + 1];
+		}
+		else {
+			s[0] = menu_setting_bl[menuPointer - 1];
+			s[2] = menu_setting_bl[menuPointer + 1];
 		}
 	}
 
@@ -355,20 +361,20 @@ void lcdPageSubMenu()
 	lcd.setFont(u8g_font_ncenB08);
 	lcd.setFontRefHeightText();
 	lcd.setFontPosTop();
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		title = menu_setting_en[menuPointer];
 	else
 		title = menu_setting_bl[menuPointer];
 	lcd.drawStr(0, 0, title.c_str());
 
 	//MENU CONTENT
-	if (trainDetail.menuLang == ENGLISH_LANG)
+	if (trainDetail.lang == ENGLISH_LANG)
 		s[1] = menu_setting_en[menuPointer];
 	else
 		s[1] = menu_setting_bl[menuPointer];
 
 	if (menuPointer == 0) {
-		if (trainDetail.menuLang == ENGLISH_LANG) {
+		if (trainDetail.lang == ENGLISH_LANG) {
 			s[0] = menu_setting_en[menu_setting_length - 1];
 			s[2] = menu_setting_en[menuPointer + 1];
 		}
@@ -378,13 +384,23 @@ void lcdPageSubMenu()
 		}
 	}
 	else if (menuPointer >= menu_setting_length - 1) {
-		if (trainDetail.menuLang == ENGLISH_LANG) {
+		if (trainDetail.lang == ENGLISH_LANG) {
 			s[0] = menu_setting_en[menuPointer - 1];
 			s[2] = menu_setting_en[0];
 		}
 		else {
 			s[0] = menu_setting_bl[menuPointer - 1];
 			s[2] = menu_setting_bl[0];
+		}
+	}
+	else {
+		if (trainDetail.lang == ENGLISH_LANG) {
+			s[0] = menu_setting_en[menuPointer - 1];
+			s[2] = menu_setting_en[menuPointer + 1];
+		}
+		else {
+			s[0] = menu_setting_bl[menuPointer - 1];
+			s[2] = menu_setting_bl[menuPointer + 1];
 		}
 	}
 
@@ -396,6 +412,7 @@ void lcdPageSubMenu()
 	lcd.drawStr(1, 45, s[1].c_str());
 	lcd.setDefaultForegroundColor();
 	lcd.drawStr(2, 60, s[2].c_str());
+
 }
 
 /**
@@ -406,10 +423,18 @@ void lcdPageSubMenu()
 
 void sdInit()
 {
+	File root, filename;
+	char c;
+	String s, tem;
+	bool startStation = 0, trainNumFound = 0;
+	byte awal, akhir;
+	byte lineCount = 0;
+
 #if SD_DEBUG
 	Serial.print(F("SD card init ..."));
 #endif	//#if SD_DEBUG
 
+	digitalWrite(LCD_SS_PIN, HIGH);
 	if (!SD.begin(SD_SS_PIN)) {
 #if SD_DEBUG
 		Serial.println(F("failed!"));
@@ -421,11 +446,198 @@ void sdInit()
 	else
 		Serial.println(F("done!"));
 #endif	//#if SD_DEBUG
+
+	///updating trainDetail struct
+
+	//find selected train files PID
+	if (trainDetail.trainInfo.trainFiles.length() == 0) {
+		root = SD.open("/");
+
+		do {
+			filename = root.openNextFile();
+			if (!filename.isDirectory()) {
+				s = filename.name();
+				s.trim();
+				if (s.indexOf(".PID") >= 0) {
+					trainDetail.trainInfo.trainFiles = s;
+					break;
+				}
+			}
+		} while (filename);
+
+		filename.close();
+		root.close();
+	}
+
+//	if (!sdFindFile(trainDetail.trainInfo.trainFiles)) {
+//#if SD_DEBUG
+//		Serial.print(F("cant find \""));
+//		Serial.print(trainDetail.trainInfo.trainFiles);
+//		Serial.println("\"");
+//#endif	//#if SD_DEBUG
+//		//TODO [Mar 23, 2018, miftakur]:
+//		//create default.txt by copy existing (first) *.PID files
+//
+//	}
+
+	filename = SD.open(trainDetail.trainInfo.trainFiles);
+	if (filename) {
+		while (filename.available()) {
+			c = filename.read();
+			s += c;
+			if (c == '\n') {
+				s.trim();
+
+				if (trainNumFound) {
+					if (trainDetail.lang == ENGLISH_LANG) {
+						awal = 0;
+						akhir = s.indexOf(';');
+						tem = s.substring(awal, akhir);
+					}
+					else {
+						awal = s.indexOf(';') + 1;
+						tem = s.substring(awal);
+					}
+					trainDetail.trainInfo.trainName = tem;
+#if SD_DEBUG
+					Serial.print(F("trainName= "));
+					Serial.println(trainDetail.trainInfo.trainName);
+#endif	//#if SD_DEBUG
+					trainNumFound = 0;
+				}
+
+				if (s.indexOf("TRAIN ") >= 0) {
+					if (trainDetail.lang == ENGLISH_LANG) {
+						awal = s.indexOf(' ') + 1;
+						akhir = s.indexOf(';');
+						tem = s.substring(awal, akhir);
+					}
+					else {
+						awal = s.indexOf(';') + 1;
+						tem = s.substring(awal);
+					}
+					trainDetail.trainInfo.trainNum = tem;
+#if SD_DEBUG
+					Serial.print(F("trainNum= "));
+					Serial.println(trainDetail.trainInfo.trainNum);
+#endif	//#if SD_DEBUG
+					trainNumFound = 1;
+				}
+
+				if (startStation) {
+					if (s.length() > 0) {
+						if (s.indexOf("AWAL")) {
+							if (trainDetail.lang == ENGLISH_LANG) {
+								awal = 0;
+								akhir = ',';
+								tem = s.substring(awal, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							trainDetail.trainInfo.routeStart = tem;
+						}
+						else if (s.indexOf("AKHIR")) {
+							if (trainDetail.lang == ENGLISH_LANG) {
+								awal = 0;
+								akhir = ',';
+								tem = s.substring(awal, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							trainDetail.trainInfo.routeEnd = tem;
+						}
+
+						if (lineCount == trainDetail.trainInfo.currentStationPosition) {
+							if (trainDetail.lang == ENGLISH_LANG) {
+								awal = 0;
+								akhir = s.indexOf(',');
+								tem = s.substring(awal, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							trainDetail.trainInfo.currentStation = tem;
+						}
+
+						lineCount++;
+					}
+				}
+
+				if (s == "//DATA//")
+					startStation = 1;
+
+				s = "";
+			}
+		}
+		filename.close();
+	}
+
+	//find coach.txt
+//	if (!sdFindFile("COACH.TXT")) {
+//#if SD_DEBUG
+//		Serial.println(F("cant find \"coach.txt\""));
+//#endif	//#if SD_DEBUG
+//	}
+
+	filename = SD.open("COACH.TXT");
+	if (filename) {
+		while (filename.available()) {
+			c = filename.read();
+			s += c;
+			if (c == '\n') {
+				if (lineCount > 0 && s.length() > 0) {
+					if (trainDetail.lang == ENGLISH_LANG) {
+						awal = 0;
+						akhir = s.indexOf(';');
+						tem = s.substring(awal, akhir);
+					}
+					else {
+						awal = s.indexOf(';') + 1;
+						tem = s.substring(awal);
+					}
+					menu_coach_list[lineCount - 1] = tem;
+				}
+
+				lineCount++;
+				s = "";
+			}
+		}	//filename.available()
+	}
 }
 
 void sdFailedHandler()
 {
 }
+
+//bool sdFindFile(String filename)
+//{
+//	bool ret = 0;
+//	File root, listFile;
+//	String s;
+//
+//	root = SD.open("/");
+//
+//	do {
+//		listFile = root.openNextFile();
+//		if (!listFile.isDirectory()) {
+//			s = listFile.name();
+//			if (s == filename) {
+//				ret = 1;
+//				break;
+//			}
+//		}
+//	} while (listFile);
+//
+//	listFile.close();
+//	root.close();
+//
+//	return ret;
+//}
 
 /**
  * *******************************************************************************
@@ -459,7 +671,7 @@ void btnHandler()
 	if (_update == 0)
 		buttonVal = btnRead();
 
-	if (buttonVal != _prevButtonVal) {
+	if (buttonVal != _prevButtonVal || _update) {
 		if (_update == 0) {
 			_update = millis() + DEBOUNCE_DELAY;
 		}	//(_update == 0)
@@ -479,9 +691,14 @@ void btnHandler()
 
 void btnUpdate(byte button)
 {
-	if ((button == DISP_STEP_SELECT) || (button == DISP_STEP_BACK)
-			|| (button == DISP_STEP_NEXT) || (button == DISP_STEP_PREV))
+	if ((button == DISP_STEP_SELECT) || (button == DISP_STEP_BACK) || (button == DISP_STEP_NEXT)
+			|| (button == DISP_STEP_PREV))
 		lcdPageUpdate(button);
+
+#if BUTTON_DEBUG
+	Serial.println(button, BIN);
+#endif	//#if BUTTON_DEBUG
+
 }
 
 byte btnRead()
