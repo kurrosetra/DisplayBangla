@@ -45,11 +45,12 @@ enum DISPLAY_STATE
 	DISP_MENU_TRAIN_NAME,
 	DISP_MENU_TRAIN_ROUTE,
 	DISP_MENU_CURRENT_STATION,
-	DISP_MENU_MENU_LANGUAGE,
+	DISP_MENU_LANGUAGE,
 	DISP_MENU_MASTER_MODE,
 	DISP_MENU_GPS_MODE,
 	DISP_MENU_COACH,
 	DISP_MENU_SYSTEM_INFO,
+	DISP_MENU_COACH_TYPE,
 	DISP_MENU_COACH_NUMBER,
 	DISP_MENU_CHANGE_REQ
 };
@@ -100,9 +101,8 @@ struct Train_Detail
 static const byte menu_setting_length = 8;
 const char *menu_setting_en[menu_setting_length] = { "Train Name", "Train Route", "Current Station", "Language",
 		"Master / Slave Mode", "Manual / GPS Mode", "Coach ID", "System Info" };
-const String menu_setting_bl[menu_setting_length] = {
-
-};
+const char *menu_setting_bl[menu_setting_length] = { "~Train Name", "~Train Route", "~Current Station", "~Language",
+		"~Master / Slave Mode", "~Manual / GPS Mode", "~Coach ID", "~System Info" };
 static const byte menu_coach_list_length = 20;
 String menu_coach_list[menu_coach_list_length];
 
@@ -168,6 +168,9 @@ void lcdBacklight(bool onf)
 
 void lcdPageUpdate(byte dispStep)
 {
+	static Train_Detail _prevTrainDetail;
+	byte _debugDisplayState = 0;
+
 	switch (displayState)
 	{
 	case DISP_IDLE:
@@ -217,11 +220,111 @@ void lcdPageUpdate(byte dispStep)
 			displayState = DISP_MAIN;
 			break;
 		case DISP_STEP_SELECT:
-//			displayState = menuPointer + 3;
-//			lcdPageChange (lcdPageSubMenu);
-//			displayState=
+			//TODO [Mar 23, 2018, miftakur]:
+			_debugDisplayState = menuPointer + 3;
+			//TODO [Mar 23, 2018, miftakur]:
+			//in-progress
+			if ((_debugDisplayState == DISP_MENU_TRAIN_ROUTE) || (_debugDisplayState == DISP_MENU_LANGUAGE)
+					|| (_debugDisplayState == DISP_MENU_MASTER_MODE) || (_debugDisplayState == DISP_MENU_GPS_MODE)) {
+				displayState = menuPointer + 3;
+				Serial.println(displayState);
+				_prevTrainDetail = trainDetail;
+				lcdPageChange (lcdPageSubMenu);
+			}
 			break;
 		}
+		break;
+	case DISP_MENU_TRAIN_NAME:
+		break;
+	case DISP_MENU_TRAIN_ROUTE:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+		case DISP_STEP_NEXT:
+			trainDetail.trainInfo.trainRoute = !trainDetail.trainInfo.trainRoute;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+			break;
+		}
+		break;
+	case DISP_MENU_CURRENT_STATION:
+		break;
+	case DISP_MENU_LANGUAGE:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+		case DISP_STEP_NEXT:
+			trainDetail.lang = !trainDetail.lang;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+			break;
+		}
+		break;
+	case DISP_MENU_MASTER_MODE:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+		case DISP_STEP_NEXT:
+			trainDetail.masterMode = !trainDetail.masterMode;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+			break;
+		}
+		break;
+	case DISP_MENU_GPS_MODE:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+		case DISP_STEP_NEXT:
+			trainDetail.gpsMode = !trainDetail.gpsMode;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+			break;
+		}
+		break;
+	case DISP_MENU_COACH:
+		break;
+	case DISP_MENU_SYSTEM_INFO:
+		break;
+	case DISP_MENU_COACH_NUMBER:
+		break;
+	case DISP_MENU_CHANGE_REQ:
 		break;
 	}
 }
@@ -344,18 +447,23 @@ void lcdPageMenu()
 	}
 
 	lcd.setFont(u8g_font_5x7);
+
 	lcd.drawStr(0, 30, s[0].c_str());
+
 	lcd.setDefaultForegroundColor();
 	lcd.drawBox(0, 37, lcd.getStrWidth(s[1].c_str()) + 1, 10);
 	lcd.setDefaultBackgroundColor();
 	lcd.drawStr(1, 45, s[1].c_str());
 	lcd.setDefaultForegroundColor();
+
 	lcd.drawStr(2, 60, s[2].c_str());
 }
 
 void lcdPageSubMenu()
 {
 	String title, s[3];
+	byte highlightLine = 1;
+	byte a;
 
 	//HEADER
 	lcd.setFont(u8g_font_ncenB08);
@@ -368,51 +476,87 @@ void lcdPageSubMenu()
 	lcd.drawStr(0, 0, title.c_str());
 
 	//MENU CONTENT
-	if (trainDetail.lang == ENGLISH_LANG)
-		s[1] = menu_setting_en[menuPointer];
-	else
-		s[1] = menu_setting_bl[menuPointer];
+	switch (displayState)
+	{
+	case DISP_MENU_TRAIN_NAME:
+		s[1] = trainDetail.trainInfo.trainName;
+		break;
+	case DISP_MENU_TRAIN_ROUTE:
+		if (trainDetail.trainInfo.trainRoute == 0) {
+			s[0] = trainDetail.trainInfo.routeStart;
+			s[2] = trainDetail.trainInfo.routeEnd;
+		}
+		else {
+			s[0] = trainDetail.trainInfo.routeEnd;
+			s[2] = trainDetail.trainInfo.routeStart;
+		}	//(trainDetail.trainInfo.trainRoute == 0)
+		if (trainDetail.lang == ENGLISH_LANG)
+			s[1] = F("To");
+		else
+			s[1] = F("~To~");
 
-	if (menuPointer == 0) {
+		highlightLine = 0;
+		break;
+	case DISP_MENU_CURRENT_STATION:
+		break;
+	case DISP_MENU_LANGUAGE:
+		s[1] = F("ENGLISH");
+		s[2] = F("BANGLADESH");
+		if (trainDetail.lang == ENGLISH_LANG)
+			highlightLine = 1;
+		else
+			highlightLine = 2;
+		break;
+	case DISP_MENU_MASTER_MODE:
 		if (trainDetail.lang == ENGLISH_LANG) {
-			s[0] = menu_setting_en[menu_setting_length - 1];
-			s[2] = menu_setting_en[menuPointer + 1];
+			s[1] = F("MASTER");
+			s[2] = F("SLAVE");
 		}
 		else {
-			s[0] = menu_setting_bl[menu_setting_length - 1];
-			s[2] = menu_setting_bl[menuPointer + 1];
+			s[1] = F("~MASTER");
+			s[2] = F("~SLAVE");
 		}
-	}
-	else if (menuPointer >= menu_setting_length - 1) {
+		if (trainDetail.masterMode)
+			highlightLine = 1;
+		else
+			highlightLine = 2;
+		break;
+	case DISP_MENU_GPS_MODE:
 		if (trainDetail.lang == ENGLISH_LANG) {
-			s[0] = menu_setting_en[menuPointer - 1];
-			s[2] = menu_setting_en[0];
+			s[1] = F("GPS");
+			s[2] = F("MANUAL");
 		}
 		else {
-			s[0] = menu_setting_bl[menuPointer - 1];
-			s[2] = menu_setting_bl[0];
+			s[1] = F("~GPS");
+			s[2] = F("~MANUAL");
 		}
-	}
-	else {
-		if (trainDetail.lang == ENGLISH_LANG) {
-			s[0] = menu_setting_en[menuPointer - 1];
-			s[2] = menu_setting_en[menuPointer + 1];
-		}
-		else {
-			s[0] = menu_setting_bl[menuPointer - 1];
-			s[2] = menu_setting_bl[menuPointer + 1];
-		}
+		if (trainDetail.gpsMode)
+			highlightLine = 1;
+		else
+			highlightLine = 2;
+		break;
+	case DISP_MENU_COACH:
+		break;
+	case DISP_MENU_COACH_TYPE:
+		break;
+	case DISP_MENU_COACH_NUMBER:
+		break;
 	}
 
+	//PRINT MENU CONTENT
 	lcd.setFont(u8g_font_5x7);
-	lcd.drawStr(0, 30, s[0].c_str());
-	lcd.setDefaultForegroundColor();
-	lcd.drawBox(0, 37, lcd.getStrWidth(s[1].c_str()) + 1, 10);
-	lcd.setDefaultBackgroundColor();
-	lcd.drawStr(1, 45, s[1].c_str());
-	lcd.setDefaultForegroundColor();
-	lcd.drawStr(2, 60, s[2].c_str());
-
+	for ( a = 0; a < 3; a++ ) {
+		if (highlightLine == a) {
+			lcd.setDefaultForegroundColor();
+			lcd.drawBox(0, 22 + (15 * a), lcd.getStrWidth(s[a].c_str()) + 1, 10);
+			lcd.setDefaultBackgroundColor();
+			lcd.drawStr(0, 30 + (15 * a), s[a].c_str());
+			lcd.setDefaultForegroundColor();
+		}
+		else {
+			lcd.drawStr(0, 30 + (15 * a), s[a].c_str());
+		}
+	}
 }
 
 /**
@@ -469,17 +613,6 @@ void sdInit()
 		root.close();
 	}
 
-//	if (!sdFindFile(trainDetail.trainInfo.trainFiles)) {
-//#if SD_DEBUG
-//		Serial.print(F("cant find \""));
-//		Serial.print(trainDetail.trainInfo.trainFiles);
-//		Serial.println("\"");
-//#endif	//#if SD_DEBUG
-//		//TODO [Mar 23, 2018, miftakur]:
-//		//create default.txt by copy existing (first) *.PID files
-//
-//	}
-
 	filename = SD.open(trainDetail.trainInfo.trainFiles);
 	if (filename) {
 		while (filename.available()) {
@@ -490,9 +623,8 @@ void sdInit()
 
 				if (trainNumFound) {
 					if (trainDetail.lang == ENGLISH_LANG) {
-						awal = 0;
 						akhir = s.indexOf(';');
-						tem = s.substring(awal, akhir);
+						tem = s.substring(0, akhir);
 					}
 					else {
 						awal = s.indexOf(';') + 1;
@@ -505,32 +637,32 @@ void sdInit()
 #endif	//#if SD_DEBUG
 					trainNumFound = 0;
 				}
-
-				if (s.indexOf("TRAIN ") >= 0) {
-					if (trainDetail.lang == ENGLISH_LANG) {
-						awal = s.indexOf(' ') + 1;
-						akhir = s.indexOf(';');
-						tem = s.substring(awal, akhir);
-					}
-					else {
-						awal = s.indexOf(';') + 1;
-						tem = s.substring(awal);
-					}
-					trainDetail.trainInfo.trainNum = tem;
+				else {
+					if (s.indexOf("TRAIN ") >= 0 && !startStation) {
+						if (trainDetail.lang == ENGLISH_LANG) {
+							awal = s.indexOf(' ') + 1;
+							akhir = s.indexOf(';');
+							tem = s.substring(awal, akhir);
+						}
+						else {
+							awal = s.indexOf(';') + 1;
+							tem = s.substring(awal);
+						}
+						trainDetail.trainInfo.trainNum = tem;
 #if SD_DEBUG
-					Serial.print(F("trainNum= "));
-					Serial.println(trainDetail.trainInfo.trainNum);
+						Serial.print(F("trainNum= "));
+						Serial.println(trainDetail.trainInfo.trainNum);
 #endif	//#if SD_DEBUG
-					trainNumFound = 1;
+						trainNumFound = 1;
+					}
 				}
 
 				if (startStation) {
 					if (s.length() > 0) {
-						if (s.indexOf("AWAL")) {
+						if (s.indexOf("AWAL") >= 0) {
 							if (trainDetail.lang == ENGLISH_LANG) {
-								awal = 0;
-								akhir = ',';
-								tem = s.substring(awal, akhir);
+								akhir = s.indexOf(',');
+								tem = s.substring(0, akhir);
 							}
 							else {
 								awal = s.indexOf(';') + 1;
@@ -538,11 +670,10 @@ void sdInit()
 							}
 							trainDetail.trainInfo.routeStart = tem;
 						}
-						else if (s.indexOf("AKHIR")) {
+						else if (s.indexOf("AKHIR") >= 0) {
 							if (trainDetail.lang == ENGLISH_LANG) {
-								awal = 0;
-								akhir = ',';
-								tem = s.substring(awal, akhir);
+								akhir = s.indexOf(',');
+								tem = s.substring(0, akhir);
 							}
 							else {
 								awal = s.indexOf(';') + 1;
@@ -553,9 +684,8 @@ void sdInit()
 
 						if (lineCount == trainDetail.trainInfo.currentStationPosition) {
 							if (trainDetail.lang == ENGLISH_LANG) {
-								awal = 0;
 								akhir = s.indexOf(',');
-								tem = s.substring(awal, akhir);
+								tem = s.substring(0, akhir);
 							}
 							else {
 								awal = s.indexOf(';') + 1;
@@ -565,11 +695,16 @@ void sdInit()
 						}
 
 						lineCount++;
+					}	//s.length() > 0
+				}  //startStation
+				else {
+					if (s.indexOf("/DATA/") >= 0) {
+#if DEBUG
+						Serial.println(s);
+#endif	//#if DEBUG
+						startStation = 1;
 					}
 				}
-
-				if (s == "//DATA//")
-					startStation = 1;
 
 				s = "";
 			}
@@ -577,12 +712,25 @@ void sdInit()
 		filename.close();
 	}
 
-	//find coach.txt
-//	if (!sdFindFile("COACH.TXT")) {
-//#if SD_DEBUG
-//		Serial.println(F("cant find \"coach.txt\""));
-//#endif	//#if SD_DEBUG
-//	}
+#if DEBUG
+	Serial.print(F("Filename: "));
+	Serial.println(trainDetail.trainInfo.trainFiles);
+
+	Serial.print(F("Train: "));
+	Serial.print(trainDetail.trainInfo.trainNum);
+	Serial.print(' ');
+	Serial.println(trainDetail.trainInfo.trainName);
+
+	Serial.print(F("route: "));
+	Serial.print(trainDetail.trainInfo.routeStart);
+	Serial.print(F(" to "));
+	Serial.println(trainDetail.trainInfo.routeEnd);
+
+	Serial.print(F("Station pos= "));
+	Serial.println(trainDetail.trainInfo.currentStationPosition);
+	Serial.print(F("Station: "));
+	Serial.println(trainDetail.trainInfo.currentStation);
+#endif	//#if DEBUG
 
 	filename = SD.open("COACH.TXT");
 	if (filename) {
@@ -613,31 +761,6 @@ void sdInit()
 void sdFailedHandler()
 {
 }
-
-//bool sdFindFile(String filename)
-//{
-//	bool ret = 0;
-//	File root, listFile;
-//	String s;
-//
-//	root = SD.open("/");
-//
-//	do {
-//		listFile = root.openNextFile();
-//		if (!listFile.isDirectory()) {
-//			s = listFile.name();
-//			if (s == filename) {
-//				ret = 1;
-//				break;
-//			}
-//		}
-//	} while (listFile);
-//
-//	listFile.close();
-//	root.close();
-//
-//	return ret;
-//}
 
 /**
  * *******************************************************************************
