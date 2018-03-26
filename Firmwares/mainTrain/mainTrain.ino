@@ -85,6 +85,7 @@ struct Train_Info
 	String trainNum;	// train's number
 	String currentStation;	// current station's name
 	uint16_t currentStationPosition;  // position of current station in "default.PID"
+	uint16_t lastStationPosition;
 	String routeStart;	// first station name
 	String routeEnd;	// last station name
 	bool trainRoute;	// train's route (down=0, up=1)
@@ -221,11 +222,11 @@ void lcdPageUpdate(byte dispStep)
 			break;
 		case DISP_STEP_SELECT:
 			//TODO [Mar 23, 2018, miftakur]:
-			_debugDisplayState = menuPointer + 3;
-			//TODO [Mar 23, 2018, miftakur]:
 			//in-progress
+			_debugDisplayState = menuPointer + 3;
 			if ((_debugDisplayState == DISP_MENU_TRAIN_ROUTE) || (_debugDisplayState == DISP_MENU_LANGUAGE)
-					|| (_debugDisplayState == DISP_MENU_MASTER_MODE) || (_debugDisplayState == DISP_MENU_GPS_MODE)) {
+					|| (_debugDisplayState == DISP_MENU_MASTER_MODE) || (_debugDisplayState == DISP_MENU_GPS_MODE)
+					|| (_debugDisplayState == DISP_MENU_CURRENT_STATION)) {
 				displayState = menuPointer + 3;
 				Serial.println(displayState);
 				_prevTrainDetail = trainDetail;
@@ -257,6 +258,33 @@ void lcdPageUpdate(byte dispStep)
 		}
 		break;
 	case DISP_MENU_CURRENT_STATION:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+			if (trainDetail.trainInfo.currentStationPosition == 0)
+				trainDetail.trainInfo.currentStationPosition = trainDetail.trainInfo.lastStationPosition;
+			else
+				trainDetail.trainInfo.currentStationPosition--;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_NEXT:
+			if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition)
+				trainDetail.trainInfo.currentStationPosition = 0;
+			else
+				trainDetail.trainInfo.currentStationPosition++;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+			break;
+		}
 		break;
 	case DISP_MENU_LANGUAGE:
 		switch (dispStep)
@@ -498,6 +526,11 @@ void lcdPageSubMenu()
 		highlightLine = 0;
 		break;
 	case DISP_MENU_CURRENT_STATION:
+		digitalWrite(LCD_SS_PIN, HIGH);
+		sdFindStation(s);
+		digitalWrite(SD_SS_PIN, HIGH);
+
+		highlightLine = 1;
 		break;
 	case DISP_MENU_LANGUAGE:
 		s[1] = F("ENGLISH");
@@ -680,6 +713,7 @@ void sdInit()
 								tem = s.substring(awal);
 							}
 							trainDetail.trainInfo.routeEnd = tem;
+							trainDetail.trainInfo.lastStationPosition = lineCount;
 						}
 
 						if (lineCount == trainDetail.trainInfo.currentStationPosition) {
@@ -728,6 +762,8 @@ void sdInit()
 
 	Serial.print(F("Station pos= "));
 	Serial.println(trainDetail.trainInfo.currentStationPosition);
+	Serial.print(F("Last Station pos= "));
+	Serial.println(trainDetail.trainInfo.lastStationPosition);
 	Serial.print(F("Station: "));
 	Serial.println(trainDetail.trainInfo.currentStation);
 #endif	//#if DEBUG
@@ -760,6 +796,115 @@ void sdInit()
 
 void sdFailedHandler()
 {
+}
+
+//uint16_t sdFindLastStationPosition(String filename)
+//{
+//	uint16_t ret = 0;
+//	File files = SD.open(filename);
+//	uint16_t lineCount = 0;
+//	String s;
+//	bool startCounting = 0;
+//	char c;
+//
+//	if (files) {
+//		while (files.available()) {
+//			c = files.read();
+//			s += c;
+//			if (c == '\n') {
+//				if (startCounting) {
+//					if (s.indexOf("AKHIR") >= 0) {
+//						ret = lineCount;
+//						break;
+//					}
+//					else
+//						lineCount++;
+//				}	//(startCounting)
+//				else {
+//					if (s.indexOf("/DATA/") >= 0) {
+//						startCounting = 1;
+//						lineCount = 0;
+//					}
+//				}
+//			}	//(c == '\n')
+//			s = "";
+//		}	//files.available()
+//		files.close();
+//	}	//(files)
+//
+//	return ret;
+//}
+
+void sdFindStation(String *s)
+{
+	File filename;
+	char c;
+	byte awal, akhir;
+	String line, tem;
+	uint16_t lineCount = 0;
+	bool startStation = 0;
+	uint16_t posLine[3];
+
+	if (trainDetail.trainInfo.currentStationPosition == 0) {
+		posLine[0] = trainDetail.trainInfo.lastStationPosition;
+		posLine[1] = 0;
+		posLine[2] = 1;
+	}
+	else if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition) {
+		posLine[0] = trainDetail.trainInfo.lastStationPosition - 1;
+		posLine[1] = trainDetail.trainInfo.lastStationPosition;
+		posLine[2] = 0;
+	}
+	else {
+		posLine[0] = trainDetail.trainInfo.currentStationPosition - 1;
+		posLine[1] = trainDetail.trainInfo.currentStationPosition;
+		posLine[2] = trainDetail.trainInfo.currentStationPosition + 1;
+	}
+
+	filename = SD.open(trainDetail.trainInfo.trainFiles);
+	if (filename) {
+		while (filename.available()) {
+			c = filename.read();
+			line += c;
+			if (c == '\n') {
+				line.trim();
+
+				if (startStation) {
+					// found target linecount
+					if ((lineCount == posLine[0]) || (lineCount == posLine[1]) || (lineCount == posLine[2])) {
+						tem = "";
+						if (trainDetail.lang == ENGLISH_LANG) {
+							akhir = line.indexOf(',');
+							tem = line.substring(0, akhir);
+						}	//(trainDetail.lang == ENGLISH_LANG)
+						else {
+							awal = line.indexOf(';') + 1;
+							tem = line.substring(awal);
+						}
+					}	//((lineCount == posLine[0]) || (lineCount == posLine[1]) || (lineCount == posLine[2]))
+
+					if (lineCount == posLine[0])
+						s[0] = tem;
+					else if (lineCount == posLine[1])
+						s[1] = tem;
+					else if (lineCount == posLine[2])
+						s[2] = tem;
+
+					lineCount++;
+				}	//(startStation)
+				else {
+					if (line.indexOf("/DATA/") >= 0) {
+						startStation = 1;
+						lineCount = 0;
+
+					}	//(line.indexOf("/DATA/") >= 0)
+				}
+
+				line = "";
+			}	//(c == '\n')
+		}	//filename.available()
+		filename.close();
+	}	//(filename)
 }
 
 /**
