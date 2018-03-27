@@ -5,8 +5,8 @@
  *      Author: miftakur
  */
 
-#ifndef TRAINDETAL_H_
-#define TRAINDETAL_H_
+#ifndef TRAINDETAIL_H_
+#define TRAINDETAIL_H_
 
 #include "Arduino.h"
 
@@ -43,4 +43,4 @@ struct Train_Detail
 
 
 
-#endif /* TRAINDETAL_H_ */
+#endif /* TRAINDETAIL_H_ */
