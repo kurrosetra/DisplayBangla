@@ -1,7 +1,7 @@
-#include "Arduino.h"
 #include <SPI.h>
 #include <SD.h>
 #include "U8glib.h"
+#include "trainDetal.h"
 
 /**
  * DECLARATION
@@ -72,33 +72,6 @@ enum LANGUAGE
 	BANGLADESH_LANG
 };
 
-struct Coach_List
-{
-	char *name;
-	byte number;
-};
-
-struct Train_Info
-{
-	String trainFiles;	// filename of selected's train
-	String trainName;	// train's name
-	String trainNum;	// train's number
-	String currentStation;	// current station's name
-	uint16_t currentStationPosition;  // position of current station in "default.PID"
-	uint16_t lastStationPosition;
-	String routeStart;	// first station name
-	String routeEnd;	// last station name
-	bool trainRoute;	// train's route (down=0, up=1)
-};
-
-struct Train_Detail
-{
-	byte lang;		// menu language (0=en, 1=ba)
-	Train_Info trainInfo;		// current train's info
-	Coach_List currentCoach;	// current coach's info
-	bool masterMode;	// master/slave mode (slave=0, master=1)
-	bool gpsMode;		// gps/manual mode (manual=0, gps=1)
-};
 static const byte menu_setting_length = 8;
 const char *menu_setting_en[menu_setting_length] = { "Train Name", "Train Route", "Current Station", "Language",
 		"Master / Slave Mode", "Manual / GPS Mode", "Coach ID", "System Info" };
@@ -221,21 +194,26 @@ void lcdPageUpdate(byte dispStep)
 			displayState = DISP_MAIN;
 			break;
 		case DISP_STEP_SELECT:
-			//TODO [Mar 23, 2018, miftakur]:
-			//in-progress
-			_debugDisplayState = menuPointer + 3;
-			if ((_debugDisplayState == DISP_MENU_TRAIN_ROUTE) || (_debugDisplayState == DISP_MENU_LANGUAGE)
-					|| (_debugDisplayState == DISP_MENU_MASTER_MODE) || (_debugDisplayState == DISP_MENU_GPS_MODE)
-					|| (_debugDisplayState == DISP_MENU_CURRENT_STATION)) {
-				displayState = menuPointer + 3;
-				Serial.println(displayState);
-				_prevTrainDetail = trainDetail;
-				lcdPageChange (lcdPageSubMenu);
-			}
+			displayState = menuPointer + 3;
+			Serial.println(displayState);
+			_prevTrainDetail = trainDetail;
+			lcdPageChange (lcdPageSubMenu);
 			break;
 		}
 		break;
 	case DISP_MENU_TRAIN_NAME:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+
+			break;
+		case DISP_STEP_NEXT:
+			break;
+		case DISP_STEP_BACK:
+			break;
+		case DISP_STEP_SELECT:
+			break;
+		}
 		break;
 	case DISP_MENU_TRAIN_ROUTE:
 		switch (dispStep)
@@ -253,6 +231,18 @@ void lcdPageUpdate(byte dispStep)
 			break;
 		case DISP_STEP_SELECT:
 			displayState = DISP_MENU;
+			if (trainDetail.trainInfo.trainRoute)
+				trainDetail.trainInfo.currentStationPosition = trainDetail.trainInfo.lastStationPosition;
+			else
+				trainDetail.trainInfo.currentStationPosition = 0;
+			sdUpdateTrainDetail(&trainDetail);
+#if DEBUG
+			Serial.print(F("currentStationPos= "));
+			Serial.println(trainDetail.trainInfo.currentStationPosition);
+			Serial.print(F("currentStationName= "));
+			Serial.println(trainDetail.trainInfo.currentStationName);
+#endif	//#if DEBUG
+
 			lcdPageChange(lcdPageMenu);
 			break;
 		}
@@ -261,17 +251,33 @@ void lcdPageUpdate(byte dispStep)
 		switch (dispStep)
 		{
 		case DISP_STEP_PREV:
-			if (trainDetail.trainInfo.currentStationPosition == 0)
-				trainDetail.trainInfo.currentStationPosition = trainDetail.trainInfo.lastStationPosition;
-			else
-				trainDetail.trainInfo.currentStationPosition--;
+			if (trainDetail.trainInfo.trainRoute) {
+				if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition)
+					trainDetail.trainInfo.currentStationPosition = 0;
+				else
+					trainDetail.trainInfo.currentStationPosition++;
+			}
+			else {
+				if (trainDetail.trainInfo.currentStationPosition == 0)
+					trainDetail.trainInfo.currentStationPosition = trainDetail.trainInfo.lastStationPosition;
+				else
+					trainDetail.trainInfo.currentStationPosition--;
+			}
 			lcdPageChange (lcdPageSubMenu);
 			break;
 		case DISP_STEP_NEXT:
-			if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition)
-				trainDetail.trainInfo.currentStationPosition = 0;
-			else
-				trainDetail.trainInfo.currentStationPosition++;
+			if (trainDetail.trainInfo.trainRoute) {
+				if (trainDetail.trainInfo.currentStationPosition == 0)
+					trainDetail.trainInfo.currentStationPosition = trainDetail.trainInfo.lastStationPosition;
+				else
+					trainDetail.trainInfo.currentStationPosition--;
+			}
+			else {
+				if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition)
+					trainDetail.trainInfo.currentStationPosition = 0;
+				else
+					trainDetail.trainInfo.currentStationPosition++;
+			}
 			lcdPageChange(lcdPageSubMenu);
 			break;
 		case DISP_STEP_BACK:
@@ -603,7 +609,6 @@ void sdInit()
 	File root, filename;
 	char c;
 	String s, tem;
-	bool startStation = 0, trainNumFound = 0;
 	byte awal, akhir;
 	byte lineCount = 0;
 
@@ -624,149 +629,20 @@ void sdInit()
 		Serial.println(F("done!"));
 #endif	//#if SD_DEBUG
 
+	//TODO [Mar 27, 2018, miftakur]:
+	//load initial setting from eeprom
+	trainDetail.trainInfo.trainID = 40;
+	trainDetail.trainInfo.currentStationPosition = 0;
+	trainDetail.lang = ENGLISH_LANG;
+	trainDetail.masterMode = MASTER_MODE;
+	trainDetail.gpsMode = MANUAL_MODE;
+
 	///updating trainDetail struct
-
-	//find selected train files PID
-	if (trainDetail.trainInfo.trainFiles.length() == 0) {
-		root = SD.open("/");
-
-		do {
-			filename = root.openNextFile();
-			if (!filename.isDirectory()) {
-				s = filename.name();
-				s.trim();
-				if (s.indexOf(".PID") >= 0) {
-					trainDetail.trainInfo.trainFiles = s;
-					break;
-				}
-			}
-		} while (filename);
-
-		filename.close();
-		root.close();
-	}
-
-	filename = SD.open(trainDetail.trainInfo.trainFiles);
-	if (filename) {
-		while (filename.available()) {
-			c = filename.read();
-			s += c;
-			if (c == '\n') {
-				s.trim();
-
-				if (trainNumFound) {
-					if (trainDetail.lang == ENGLISH_LANG) {
-						akhir = s.indexOf(';');
-						tem = s.substring(0, akhir);
-					}
-					else {
-						awal = s.indexOf(';') + 1;
-						tem = s.substring(awal);
-					}
-					trainDetail.trainInfo.trainName = tem;
-#if SD_DEBUG
-					Serial.print(F("trainName= "));
-					Serial.println(trainDetail.trainInfo.trainName);
-#endif	//#if SD_DEBUG
-					trainNumFound = 0;
-				}
-				else {
-					if (s.indexOf("TRAIN ") >= 0 && !startStation) {
-						if (trainDetail.lang == ENGLISH_LANG) {
-							awal = s.indexOf(' ') + 1;
-							akhir = s.indexOf(';');
-							tem = s.substring(awal, akhir);
-						}
-						else {
-							awal = s.indexOf(';') + 1;
-							tem = s.substring(awal);
-						}
-						trainDetail.trainInfo.trainNum = tem;
-#if SD_DEBUG
-						Serial.print(F("trainNum= "));
-						Serial.println(trainDetail.trainInfo.trainNum);
-#endif	//#if SD_DEBUG
-						trainNumFound = 1;
-					}
-				}
-
-				if (startStation) {
-					if (s.length() > 0) {
-						if (s.indexOf("AWAL") >= 0) {
-							if (trainDetail.lang == ENGLISH_LANG) {
-								akhir = s.indexOf(',');
-								tem = s.substring(0, akhir);
-							}
-							else {
-								awal = s.indexOf(';') + 1;
-								tem = s.substring(awal);
-							}
-							trainDetail.trainInfo.routeStart = tem;
-						}
-						else if (s.indexOf("AKHIR") >= 0) {
-							if (trainDetail.lang == ENGLISH_LANG) {
-								akhir = s.indexOf(',');
-								tem = s.substring(0, akhir);
-							}
-							else {
-								awal = s.indexOf(';') + 1;
-								tem = s.substring(awal);
-							}
-							trainDetail.trainInfo.routeEnd = tem;
-							trainDetail.trainInfo.lastStationPosition = lineCount;
-						}
-
-						if (lineCount == trainDetail.trainInfo.currentStationPosition) {
-							if (trainDetail.lang == ENGLISH_LANG) {
-								akhir = s.indexOf(',');
-								tem = s.substring(0, akhir);
-							}
-							else {
-								awal = s.indexOf(';') + 1;
-								tem = s.substring(awal);
-							}
-							trainDetail.trainInfo.currentStation = tem;
-						}
-
-						lineCount++;
-					}	//s.length() > 0
-				}  //startStation
-				else {
-					if (s.indexOf("/DATA/") >= 0) {
+	if (!sdUpdateTrainDetail(&trainDetail)) {
 #if DEBUG
-						Serial.println(s);
+		Serial.println(F("train not found!"));
 #endif	//#if DEBUG
-						startStation = 1;
-					}
-				}
-
-				s = "";
-			}
-		}
-		filename.close();
 	}
-
-#if DEBUG
-	Serial.print(F("Filename: "));
-	Serial.println(trainDetail.trainInfo.trainFiles);
-
-	Serial.print(F("Train: "));
-	Serial.print(trainDetail.trainInfo.trainNum);
-	Serial.print(' ');
-	Serial.println(trainDetail.trainInfo.trainName);
-
-	Serial.print(F("route: "));
-	Serial.print(trainDetail.trainInfo.routeStart);
-	Serial.print(F(" to "));
-	Serial.println(trainDetail.trainInfo.routeEnd);
-
-	Serial.print(F("Station pos= "));
-	Serial.println(trainDetail.trainInfo.currentStationPosition);
-	Serial.print(F("Last Station pos= "));
-	Serial.println(trainDetail.trainInfo.lastStationPosition);
-	Serial.print(F("Station: "));
-	Serial.println(trainDetail.trainInfo.currentStation);
-#endif	//#if DEBUG
 
 	filename = SD.open("COACH.TXT");
 	if (filename) {
@@ -798,42 +674,183 @@ void sdFailedHandler()
 {
 }
 
-//uint16_t sdFindLastStationPosition(String filename)
-//{
-//	uint16_t ret = 0;
-//	File files = SD.open(filename);
-//	uint16_t lineCount = 0;
-//	String s;
-//	bool startCounting = 0;
-//	char c;
-//
-//	if (files) {
-//		while (files.available()) {
-//			c = files.read();
-//			s += c;
-//			if (c == '\n') {
-//				if (startCounting) {
-//					if (s.indexOf("AKHIR") >= 0) {
-//						ret = lineCount;
-//						break;
-//					}
-//					else
-//						lineCount++;
-//				}	//(startCounting)
-//				else {
-//					if (s.indexOf("/DATA/") >= 0) {
-//						startCounting = 1;
-//						lineCount = 0;
-//					}
-//				}
-//			}	//(c == '\n')
-//			s = "";
-//		}	//files.available()
-//		files.close();
-//	}	//(files)
-//
-//	return ret;
-//}
+bool sdUpdateTrainDetail(Train_Detail * td)
+{
+	bool ret = 0;
+	File root, filename;
+	String s, tem;
+	char c;
+	bool trainNumFound = 0, startStation = 0;
+	byte awal, akhir;
+	uint16_t lineCount = 0;
+
+	//find selected train files PID
+	if (td->trainInfo.trainFiles.length() == 0) {
+		root = SD.open("/");
+
+		do {
+			filename = root.openNextFile();
+			if (!filename.isDirectory()) {
+				s = filename.name();
+				s.trim();
+
+				if (s.indexOf(".PID") >= 0) {
+					if (td->trainInfo.trainID == 0) {
+						td->trainInfo.trainFiles = s;
+
+						td->trainInfo.currentTrainPosition = 0;
+						ret = 1;
+					}
+					else {
+						//ex. 	KA41KA~1.PID
+						//		KA123T~1.PID
+						c = s.charAt(4);
+						if (c >= '0' || c <= '9')
+							akhir = 4;
+						else
+							akhir = 3;
+						tem = s.substring(2, akhir);
+						if (td->trainInfo.trainID == tem.toInt()) {
+							td->trainInfo.trainFiles = s;
+							td->trainInfo.currentTrainPosition = lineCount;
+						}
+
+						ret = 1;
+					}	// td->trainInfo.trainID == 0
+					lineCount++;
+				}
+			}
+		} while (filename);
+
+		filename.close();
+		root.close();
+
+		//file not found
+		if (!ret)
+			return 0;
+
+		td->trainInfo.lastTrainPosition = lineCount - 1;
+	}	//(td->trainInfo.trainFiles.length() == 0)
+
+	lineCount = 0;
+	filename = SD.open(td->trainInfo.trainFiles);
+	if (filename) {
+		while (filename.available()) {
+			c = filename.read();
+			s += c;
+			if (c == '\n') {
+				s.trim();
+
+				if (trainNumFound) {
+					if (td->lang == ENGLISH_LANG) {
+						akhir = s.indexOf(';');
+						tem = s.substring(0, akhir);
+					}
+					else {
+						awal = s.indexOf(';') + 1;
+						tem = s.substring(awal);
+					}
+					td->trainInfo.trainName = tem;
+					trainNumFound = 0;
+				}
+				else {
+					if (s.indexOf("KA ") >= 0 && !startStation) {
+						awal = s.indexOf(' ') + 1;
+						akhir = s.indexOf(';');
+						tem = s.substring(awal, akhir);
+						td->trainInfo.trainID = tem.toInt();
+						if (td->lang != ENGLISH_LANG) {
+							awal = s.indexOf(';') + 1;
+							tem = s.substring(awal);
+						}
+						td->trainInfo.trainNum = tem;
+						trainNumFound = 1;
+					}
+				}
+
+				if (startStation) {
+					if (s.length() > 0) {
+						if (s.indexOf("AWAL") >= 0) {
+							if (td->lang == ENGLISH_LANG) {
+								akhir = s.indexOf(',');
+								tem = s.substring(0, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							td->trainInfo.routeStart = tem;
+						}
+						else if (s.indexOf("AKHIR") >= 0) {
+							if (td->lang == ENGLISH_LANG) {
+								akhir = s.indexOf(',');
+								tem = s.substring(0, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							td->trainInfo.routeEnd = tem;
+							td->trainInfo.lastStationPosition = lineCount;
+						}
+
+						if (lineCount == td->trainInfo.currentStationPosition) {
+							if (td->lang == ENGLISH_LANG) {
+								akhir = s.indexOf(',');
+								tem = s.substring(0, akhir);
+							}
+							else {
+								awal = s.indexOf(';') + 1;
+								tem = s.substring(awal);
+							}
+							td->trainInfo.currentStationName = tem;
+						}
+
+						lineCount++;
+					}	//s.length() > 0
+				}  //startStation
+				else {
+					if (s.indexOf("//DATA//") >= 0) {
+						startStation = 1;
+					}
+				}
+
+				s = "";
+			}
+		}
+		filename.close();
+	}
+
+#if DEBUG
+	Serial.print(F("trainID= "));
+	Serial.println(td->trainInfo.trainID);
+	Serial.print(F("trainPos= "));
+	Serial.print(td->trainInfo.currentTrainPosition);
+	Serial.print(F(" of "));
+	Serial.println(td->trainInfo.lastTrainPosition);
+	Serial.print(F("Filename: "));
+	Serial.println(td->trainInfo.trainFiles);
+
+	Serial.print(F("Train: "));
+	Serial.print(td->trainInfo.trainNum);
+	Serial.print(' ');
+	Serial.println(td->trainInfo.trainName);
+
+	Serial.print(F("route: "));
+	Serial.print(td->trainInfo.routeStart);
+	Serial.print(F(" to "));
+	Serial.println(td->trainInfo.routeEnd);
+
+	Serial.print(F("Station pos= "));
+	Serial.print(td->trainInfo.currentStationPosition);
+	Serial.print(F(" of "));
+	Serial.println(td->trainInfo.lastStationPosition);
+	Serial.print(F("Station: "));
+	Serial.println(td->trainInfo.currentStationName);
+#endif	//#if DEBUG
+
+	return ret;
+}
 
 void sdFindStation(String *s)
 {
@@ -846,19 +863,37 @@ void sdFindStation(String *s)
 	uint16_t posLine[3];
 
 	if (trainDetail.trainInfo.currentStationPosition == 0) {
-		posLine[0] = trainDetail.trainInfo.lastStationPosition;
 		posLine[1] = 0;
-		posLine[2] = 1;
+		if (trainDetail.trainInfo.trainRoute) {
+			posLine[0] = 1;
+			posLine[2] = trainDetail.trainInfo.lastStationPosition;
+		}
+		else {
+			posLine[0] = trainDetail.trainInfo.lastStationPosition;
+			posLine[2] = 1;
+		}
 	}
 	else if (trainDetail.trainInfo.currentStationPosition == trainDetail.trainInfo.lastStationPosition) {
-		posLine[0] = trainDetail.trainInfo.lastStationPosition - 1;
 		posLine[1] = trainDetail.trainInfo.lastStationPosition;
-		posLine[2] = 0;
+		if (trainDetail.trainInfo.trainRoute) {
+			posLine[0] = 0;
+			posLine[2] = trainDetail.trainInfo.lastStationPosition - 1;
+		}
+		else {
+			posLine[0] = trainDetail.trainInfo.lastStationPosition - 1;
+			posLine[2] = 0;
+		}
 	}
 	else {
-		posLine[0] = trainDetail.trainInfo.currentStationPosition - 1;
 		posLine[1] = trainDetail.trainInfo.currentStationPosition;
-		posLine[2] = trainDetail.trainInfo.currentStationPosition + 1;
+		if (trainDetail.trainInfo.trainRoute) {
+			posLine[0] = trainDetail.trainInfo.currentStationPosition + 1;
+			posLine[2] = trainDetail.trainInfo.currentStationPosition - 1;
+		}
+		else {
+			posLine[0] = trainDetail.trainInfo.currentStationPosition - 1;
+			posLine[2] = trainDetail.trainInfo.currentStationPosition + 1;
+		}
 	}
 
 	filename = SD.open(trainDetail.trainInfo.trainFiles);
@@ -870,7 +905,7 @@ void sdFindStation(String *s)
 				line.trim();
 
 				if (startStation) {
-					// found target linecount
+					// found target lineCount
 					if ((lineCount == posLine[0]) || (lineCount == posLine[1]) || (lineCount == posLine[2])) {
 						tem = "";
 						if (trainDetail.lang == ENGLISH_LANG) {
@@ -893,11 +928,11 @@ void sdFindStation(String *s)
 					lineCount++;
 				}	//(startStation)
 				else {
-					if (line.indexOf("/DATA/") >= 0) {
+					if (line.indexOf("//DATA//") >= 0) {
 						startStation = 1;
 						lineCount = 0;
 
-					}	//(line.indexOf("/DATA/") >= 0)
+					}	//(line.indexOf("//DATA//") >= 0)
 				}
 
 				line = "";
