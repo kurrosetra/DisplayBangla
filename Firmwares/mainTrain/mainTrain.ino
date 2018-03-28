@@ -82,13 +82,16 @@ const char *menu_setting_en[menu_setting_length] = { "Current Station", "Train R
 const char *menu_setting_bl[menu_setting_length] = { "~Current Station", "~Train Route", "~Train Name", "~Language",
 		"~Master / Slave Mode", "~Manual / GPS Mode", "~Coach ID", "~System Info" };
 static const byte menu_coach_list_length = 20;
-String menu_coach_list[menu_coach_list_length];
+String menu_coach_list_en[menu_coach_list_length];
+String menu_coach_list_bl[menu_coach_list_length];
+String number_conversion[menu_coach_list_length];
 
 byte displayState = DISP_IDLE;
 Train_Detail trainDetail;
 Train_Detail temTrain[3];
 byte currentDisplayState = DISP_IDLE;
 byte menuPointer = 0;
+bool coachPointer = 0;
 U8GLIB_ST7920_128X64_4X lcd(LCD_SS_PIN);
 
 /**
@@ -201,9 +204,10 @@ void lcdPageUpdate(byte dispStep)
 		case DISP_STEP_SELECT:
 			displayState = menuPointer + 3;
 
-			if (displayState == DISP_MENU_TRAIN_NAME)
+			if (displayState == DISP_MENU_TRAIN_NAME) {
 				for ( a = 0; a < 3; a++ )
 					temTrain[a] = trainDetail;
+			}
 			else
 				_prevTrainDetail = trainDetail;
 
@@ -384,10 +388,105 @@ void lcdPageUpdate(byte dispStep)
 		}
 		break;
 	case DISP_MENU_COACH:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+		case DISP_STEP_NEXT:
+			if (coachPointer)
+				coachPointer = 0;
+			else
+				coachPointer = 1;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case DISP_STEP_SELECT:
+			if (coachPointer)
+				displayState = DISP_MENU_COACH_NUMBER;
+			else
+				displayState = DISP_MENU_COACH_TYPE;
+			_prevTrainDetail = trainDetail;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		}
 		break;
 	case DISP_MENU_SYSTEM_INFO:
 		break;
+	case DISP_MENU_COACH_TYPE:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+			Serial.print(trainDetail.coach.nameID);
+			if (trainDetail.coach.nameID == 0)
+				trainDetail.coach.nameID = trainDetail.coach.typeNum;
+			else
+				trainDetail.coach.nameID--;
+			Serial.print(trainDetail.coach.nameID);
+
+			if (trainDetail.lang == ENGLISH_LANG)
+				trainDetail.coach.name = menu_coach_list_en[trainDetail.coach.nameID];
+			else
+				trainDetail.coach.name = menu_coach_list_bl[trainDetail.coach.nameID];
+
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_NEXT:
+			Serial.print(trainDetail.coach.nameID);
+			if (trainDetail.coach.nameID >= trainDetail.coach.typeNum)
+				trainDetail.coach.nameID = 0;
+			else
+				trainDetail.coach.nameID++;
+			Serial.print(trainDetail.coach.nameID);
+
+			if (trainDetail.lang == ENGLISH_LANG)
+				trainDetail.coach.name = menu_coach_list_en[trainDetail.coach.nameID];
+			else
+				trainDetail.coach.name = menu_coach_list_bl[trainDetail.coach.nameID];
+
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU_COACH;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU_COACH;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		}
+		break;
 	case DISP_MENU_COACH_NUMBER:
+		switch (dispStep)
+		{
+		case DISP_STEP_PREV:
+			if (trainDetail.coach.number == 0)
+				trainDetail.coach.number = menu_coach_list_length - 1;
+			else
+				trainDetail.coach.number--;
+			lcdPageChange (lcdPageSubMenu);
+			break;
+		case DISP_STEP_NEXT:
+			if (trainDetail.coach.number == menu_coach_list_length - 1)
+				trainDetail.coach.number = 0;
+			else
+				trainDetail.coach.number++;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		case DISP_STEP_BACK:
+			//change back
+			trainDetail = _prevTrainDetail;
+			displayState = DISP_MENU_COACH;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		case DISP_STEP_SELECT:
+			displayState = DISP_MENU_COACH;
+			lcdPageChange(lcdPageSubMenu);
+			break;
+		}
 		break;
 	case DISP_MENU_CHANGE_REQ:
 		break;
@@ -403,7 +502,7 @@ void lcdPageChange(void (*updatePage)())
 
 void lcdPageMain()
 {
-	String title, s[3];
+	String title, s[4];
 	u8g_uint_t w, d;
 
 	//HEADER
@@ -417,33 +516,40 @@ void lcdPageMain()
 	//KONTEN 1
 	s[1] = trainDetail.trainInfo.currentStationName;
 	//KONTEN 2
+	s[2] = trainDetail.coach.name;
+	s[2] += ' ';
+	if (trainDetail.lang == ENGLISH_LANG)
+		s[2] += trainDetail.coach.number + 1;
+	else
+		s[2] += number_conversion[trainDetail.coach.number];
+	//KONTEN 3
 	if (trainDetail.masterMode) {
 		if (trainDetail.lang == ENGLISH_LANG)
-			s[2] = F("Master");
+			s[3] = F("Master");
 		else
-			s[2] = F("~Master~");
+			s[3] = F("~Master~");
 	}
 	else {
 		if (trainDetail.lang == ENGLISH_LANG)
-			s[2] = F("Slave");
+			s[3] = F("Slave");
 		else
-			s[2] = F("~Slave~");
+			s[3] = F("~Slave~");
 	}
 	if (trainDetail.lang == ENGLISH_LANG)
-		s[2] += ';';
+		s[3] += ';';
 	else
-		s[2] += "~;~";
+		s[3] += "~;~";
 	if (trainDetail.gpsMode) {
 		if (trainDetail.lang == ENGLISH_LANG)
-			s[2] += F("GPS");
+			s[3] += F("GPS");
 		else
-			s[2] += F("~GPS~");
+			s[3] += F("~GPS~");
 	}
 	else {
 		if (trainDetail.lang == ENGLISH_LANG)
-			s[2] += F("Manual");
+			s[3] += F("Manual");
 		else
-			s[2] += F("~Manual~");
+			s[3] += F("~Manual~");
 	}
 
 	lcd.firstPage();
@@ -465,7 +571,10 @@ void lcdPageMain()
 		lcd.drawStr(d, 35, s[1].c_str());
 		//KONTEN 3
 		d = (w - lcd.getStrWidth(s[2].c_str())) / 2;
-		lcd.drawStr(d, 63, s[2].c_str());
+		lcd.drawStr(d, 45, s[2].c_str());
+		//KONTEN 4
+		d = (w - lcd.getStrWidth(s[3].c_str())) / 2;
+		lcd.drawStr(d, 63, s[3].c_str());
 	} while (lcd.nextPage());
 }
 
@@ -542,7 +651,7 @@ void lcdPageSubMenu()
 	String title, s[3];
 	Train_Detail td[3];
 	byte highlightLine = 1;
-	byte a;
+	byte a, b[3];
 
 	//HEADER
 	if (trainDetail.lang == ENGLISH_LANG)
@@ -620,10 +729,80 @@ void lcdPageSubMenu()
 			highlightLine = 2;
 		break;
 	case DISP_MENU_COACH:
+		s[1] = trainDetail.coach.name;
+
+		if (trainDetail.lang == ENGLISH_LANG)
+			s[2] = trainDetail.coach.number + 1;
+		else
+			s[2] = number_conversion[trainDetail.coach.number];
+
+		if (coachPointer)
+			highlightLine = 2;
+		else
+			highlightLine = 1;
 		break;
 	case DISP_MENU_COACH_TYPE:
+		b[1] = trainDetail.coach.nameID;
+		if (trainDetail.coach.nameID == 0) {
+			b[0] = trainDetail.coach.typeNum;
+			b[2] = 1;
+		}
+		else if (trainDetail.coach.nameID >= trainDetail.coach.typeNum) {
+			b[0] = trainDetail.coach.typeNum - 1;
+			b[2] = 0;
+		}
+		else {
+			b[0] = b[1]--;
+			b[2] = b[1]++;
+		}
+
+		if (trainDetail.lang == ENGLISH_LANG) {
+			for ( a = 0; a < 3; a++ )
+				s[a] = menu_coach_list_en[b[a]];
+		}
+		else {
+			for ( a = 0; a < 3; a++ )
+				s[a] = menu_coach_list_bl[b[a]];
+		}
+
+		highlightLine = 1;
 		break;
 	case DISP_MENU_COACH_NUMBER:
+		if (trainDetail.lang == ENGLISH_LANG) {
+			if (trainDetail.coach.number == 0) {
+				s[1] = 1;
+				s[0] = menu_coach_list_length;
+				s[2] = 2;
+			}
+			else if (trainDetail.coach.number >= menu_coach_list_length - 1) {
+				s[1] = menu_coach_list_length;
+				s[0] = menu_coach_list_length - 1;
+				s[2] = 1;
+			}
+			else {
+				s[1] = trainDetail.coach.number + 1;
+				s[0] = trainDetail.coach.number;
+				s[2] = trainDetail.coach.number + 2;
+			}
+		}
+		else {
+			if (trainDetail.coach.number == 0) {
+				s[1] = number_conversion[0];
+				s[0] = number_conversion[menu_coach_list_length - 1];
+				s[2] = number_conversion[1];
+			}
+			else if (trainDetail.coach.number >= menu_coach_list_length - 1) {
+				s[1] = number_conversion[menu_coach_list_length - 1];
+				s[0] = number_conversion[menu_coach_list_length - 2];
+				s[2] = number_conversion[0];
+			}
+			else {
+				s[1] = number_conversion[trainDetail.coach.number];
+				s[0] = number_conversion[trainDetail.coach.number - 1];
+				s[2] = number_conversion[trainDetail.coach.number + 1];
+			}
+		}
+		highlightLine = 1;
 		break;
 	}
 
@@ -660,11 +839,6 @@ void lcdPageSubMenu()
 
 void sdInit()
 {
-	File root, filename;
-	char c;
-	String s, tem;
-	byte awal, akhir;
-	byte lineCount = 0;
 
 #if SD_DEBUG
 	Serial.print(F("SD card init ..."));
@@ -685,11 +859,27 @@ void sdInit()
 
 	//TODO [Mar 27, 2018, miftakur]:
 	//load initial setting from eeprom
+
+	//TODO [Mar 27, 2018, miftakur]:
+	//
 	trainDetail.trainInfo.trainID = 40;
 	trainDetail.trainInfo.currentStationPosition = 0;
 	trainDetail.lang = ENGLISH_LANG;
 	trainDetail.masterMode = MASTER_MODE;
 	trainDetail.gpsMode = MANUAL_MODE;
+	trainDetail.coach.nameID = 0;
+	trainDetail.coach.number = 0;
+
+	//update coach list
+	sdCoachUpdate();
+	if (trainDetail.coach.name.length() == 0) {
+		trainDetail.coach.nameID = 0;
+		if (trainDetail.lang == ENGLISH_LANG)
+			trainDetail.coach.name = menu_coach_list_en[trainDetail.coach.nameID];
+		else
+			trainDetail.coach.name = menu_coach_list_bl[trainDetail.coach.nameID];
+		trainDetail.coach.number = 0;
+	}
 
 	///updating trainDetail struct
 	if (!sdUpdateTrainDetail(&trainDetail)) {
@@ -698,23 +888,53 @@ void sdInit()
 #endif	//#if DEBUG
 	}
 
-	filename = SD.open("COACH.TXT");
+}
+
+void sdFailedHandler()
+{
+}
+
+void sdCoachUpdate()
+{
+	char c;
+	String s, tem;
+	byte awal, akhir, index;
+	bool startCoachNumber = 0;
+	uint16_t lineCount = 0;
+	File filename = SD.open("COACH.TXT");
+	byte a;
+
 	if (filename) {
 		while (filename.available()) {
 			c = filename.read();
 			s += c;
 			if (c == '\n') {
-				if (lineCount > 0 && s.length() > 0) {
-					if (trainDetail.lang == ENGLISH_LANG) {
-						awal = 0;
-						akhir = s.indexOf(';');
-						tem = s.substring(awal, akhir);
+				s.trim();
+				if (!startCoachNumber) {
+					if (s.indexOf(F("//DATA//")) >= 0) {
+						startCoachNumber = 1;
+						trainDetail.coach.typeNum = lineCount - 2;
 					}
 					else {
-						awal = s.indexOf(';') + 1;
-						tem = s.substring(awal);
+						if (lineCount > 0 && s.length() > 0) {
+							awal = 0;
+							akhir = s.indexOf(';');
+							tem = s.substring(awal, akhir);
+							menu_coach_list_en[lineCount - 1] = tem;
+
+							tem = s.substring(akhir + 1);
+							menu_coach_list_bl[lineCount - 1] = tem;
+						}
 					}
-					menu_coach_list[lineCount - 1] = tem;
+				}
+				else {
+					if (s.length() > 0) {
+						awal = s.indexOf(';');
+						tem = s.substring(0, awal);
+						index = tem.toInt() - 1;
+						tem = s.substring(awal + 1);
+						number_conversion[index] = tem;
+					}
 				}
 
 				lineCount++;
@@ -722,10 +942,23 @@ void sdInit()
 			}
 		}	//filename.available()
 	}
-}
+	filename.close();
 
-void sdFailedHandler()
-{
+	//update coach info
+	if (trainDetail.lang == ENGLISH_LANG)
+		trainDetail.coach.name = menu_coach_list_en[trainDetail.coach.nameID];
+	else
+		trainDetail.coach.name = menu_coach_list_bl[trainDetail.coach.nameID];
+
+	trainDetail.coach.typeNum = 0;
+	for ( a = 0; a < menu_coach_list_length; a++ ) {
+		if (menu_coach_list_en[a].length() > 0)
+			trainDetail.coach.typeNum++;
+		else {
+			trainDetail.coach.typeNum--;
+			break;
+		}
+	}
 }
 
 bool sdUpdateTrainDetail(Train_Detail * td)
@@ -878,6 +1111,12 @@ bool sdUpdateTrainDetail(Train_Detail * td)
 		filename.close();
 	}
 
+	//update coach info
+	if (td->lang == ENGLISH_LANG)
+		td->coach.name = menu_coach_list_en[td->coach.nameID];
+	else
+		td->coach.name = menu_coach_list_bl[td->coach.nameID];
+
 #if DEBUG
 	Serial.print(F("trainID= "));
 	Serial.println(td->trainInfo.trainID);
@@ -904,6 +1143,13 @@ bool sdUpdateTrainDetail(Train_Detail * td)
 	Serial.println(td->trainInfo.lastStationPosition);
 	Serial.print(F("Station: "));
 	Serial.println(td->trainInfo.currentStationName);
+
+	Serial.print(F("Coach: "));
+	Serial.print(td->coach.name);
+	Serial.print(F(" - "));
+	Serial.println(td->coach.number);
+	Serial.print(F("num of coach's type= "));
+	Serial.println(td->coach.typeNum + 1);
 #endif	//#if DEBUG
 
 	return ret;

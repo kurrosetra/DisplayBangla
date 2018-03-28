@@ -12,8 +12,10 @@
 
 struct Coach_List
 {
-	char *name;
-	byte number;
+	byte nameID;		// id of coach's type
+	String name;	// name of coach
+	byte number;	// start from 0 to 19, but the string start from '1' to '20'
+	byte typeNum;	// number of different coach name
 };
 
 struct Train_Info
@@ -36,7 +38,7 @@ struct Train_Detail
 {
 	byte lang;		// menu language (0=en, 1=ba)
 	Train_Info trainInfo;		// current train's info
-	Coach_List currentCoach;	// current coach's info
+	Coach_List coach;	// current coach's info
 	bool masterMode;	// master/slave mode (slave=0, master=1)
 	bool gpsMode;		// gps/manual mode (manual=0, gps=1)
 };
