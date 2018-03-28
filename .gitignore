@@ -35,3 +35,6 @@ Firmwares/mainTrain/.*
 Firmwares/mainTrain/sloeber.ino.cpp
 Firmwares/mainTrain/Release/
 RemoteSystemsTempFiles/
+Firmwares/storageBank/.*
+Firmwares/storageBank/sloeber.ino.cpp
+Firmwares/storageBank/Release/
