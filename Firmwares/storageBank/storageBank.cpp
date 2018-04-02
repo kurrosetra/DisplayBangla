@@ -7,180 +7,414 @@
 
 #include "storageBank.h"
 
-StorageBank::StorageBank(byte blockNum, byte blockDataSize, byte fixedDataSize, uint16_t startAddress, byte counterMax)
+StorageBank::StorageBank(byte blockNum, byte blockDataSize, byte fixedDataSize,
+		uint16_t startAddress)
 {
+	error = 0;
 	START_ADDRESS = startAddress;
-	BLOCK_NUM_SIZE = blockNum;
-	BLOCK_DATA_SIZE = blockDataSize;
+	BLOCK_NUM = blockNum;
+	BLOCK_SIZE = blockDataSize;
 	STORED_DATA_SIZE = fixedDataSize + 1;
-	block_address_pointer = 0;
-	data_address_pointer = 0;
-	active_block = 0;
-	sizeError = 0;
-	counter_pointer = 0;
-	counter_max = counterMax;
-	if (counter_max > BLOCK_COUNTER_MAX)
-		counter_max = BLOCK_COUNTER_MAX;
+	newestBlockID = 0;
+	newestBlockCounter = 0;
+	newestDataAddr = 0;
+	newestDataCounter = 0;
 }
 
 bool StorageBank::init()
 {
-	bool ret = 1;
-	uint16_t eeprom_size_available = E2END;
 	uint16_t eeprom_size_requirement;
+	uint16_t eeprom_size_available = E2END + 1;
+	uint16_t dataBlockSize = 0;
 
-	eeprom_size_requirement = (BLOCK_NUM_SIZE * BLOCK_DATA_SIZE * STORED_DATA_SIZE) + 1 /*BLOCK HEADER*/+ START_ADDRESS;
+	dataBlockSize = (uint16_t) BLOCK_NUM * (uint16_t) BLOCK_SIZE;
+	eeprom_size_requirement = (dataBlockSize * (uint16_t) STORED_DATA_SIZE) + BLOCK_NUM /*BLOCK HEADER*/
+	+ START_ADDRESS;
 
-	if ((eeprom_size_requirement >= eeprom_size_available) || (BLOCK_DATA_SIZE >= BLOCK_COUNTER_MAX)) {
-		sizeError = 1;
-		return 0;
-	}
+	if (eeprom_size_requirement >= eeprom_size_available)
+		error |= ERR_SPACE_SIZE;
 
-	active_block = EEPROM.read(START_ADDRESS);
-	if (active_block == 0xFF) {
-		active_block = 0;
-		EEPROM.write(START_ADDRESS, 0);
+	if (BLOCK_SIZE >= COUNTER_MAX)
+		error |= ERR_COUNTER_EXCEEDED;
 
-		counter_pointer = 0xFF;
-		data_address_pointer = START_ADDRESS + 1;
-		firstWrite = 1;
-	}
-	else
-		//find newest data address
-		counter_pointer = findCurrentDataAddress();
+	if (BLOCK_NUM * BLOCK_SIZE >= COUNTER_MAX)
+		error |= ERR_COUNTER_MODULO;
 
-#if DEBUG
-	Serial.print(F("active_block= "));
-	Serial.println(active_block);
-	Serial.print(F("data_address_pointer= "));
-	Serial.println(data_address_pointer);
-	Serial.print(F("counter_pointer= "));
-	Serial.println(counter_pointer);
-	Serial.print(F("counter_max= "));
-	Serial.println(counter_max);
-#endif	//#if DEBUG
+	//unformatted eeprom space
+	if (EEPROM.read(START_ADDRESS) == 0xFF)
+		clearEEPROM();
 
-	return ret;
+	//find active block
+	updateBlock();
+	//find data counter at active block
+	newestDataCounter = getNewestDataCounter(newestBlockID, &newestDataAddr);
+
+	return error;
 }
 
 void StorageBank::read(byte* data)
 {
-	for ( byte a = 1; a < STORED_DATA_SIZE; a++ )
-		*(data++) = EEPROM.read(data_address_pointer + a);
+	byte a;
+
+	//read data content
+	for ( a = 1; a < STORED_DATA_SIZE; a++ )
+		*data++ = EEPROM.read(newestDataAddr + a);
 }
 
 void StorageBank::write(byte* data)
 {
-	uint16_t nextDataAddressPointer = 0;
-	uint16_t currentBlockStartAddress;
-	uint16_t currentBlockEndAddress = 0;
 	byte a;
+	uint16_t blockAddrStart, blockAddrEnd;
 
-	nextDataAddressPointer = data_address_pointer + STORED_DATA_SIZE;
-	currentBlockStartAddress = (active_block * BLOCK_DATA_SIZE) + START_ADDRESS + 1;
-	currentBlockEndAddress = currentBlockStartAddress + ((BLOCK_DATA_SIZE - 1) * STORED_DATA_SIZE);
-
-	//next data address is outside active_block boundary
-	if (nextDataAddressPointer > currentBlockEndAddress) {
-		//already at end of block
-		if (active_block >= BLOCK_NUM_SIZE - 1) {
-			active_block = 0;
-			data_address_pointer = START_ADDRESS + 1;
-		}
-		else {
-			active_block++;
-			data_address_pointer = nextDataAddressPointer;
-		}
-
-		//find counter_pointer for this block, which is at the end of data block
-		currentBlockStartAddress = (active_block * BLOCK_DATA_SIZE) + START_ADDRESS + 1;
-		currentBlockEndAddress = currentBlockStartAddress + ((BLOCK_DATA_SIZE - 1) * STORED_DATA_SIZE);
-		counter_pointer = EEPROM.read(currentBlockEndAddress) + 1;
-		if (counter_pointer > counter_max)
-			counter_pointer = 0;
-
-	}  // nextDataAddressPointer >= currentBlockEndAddress
-	else {
-		counter_pointer++;
-		if (counter_pointer > counter_max)
-			counter_pointer = 0;
-
-		//if not unwritten space
-		if (EEPROM.read(data_address_pointer) != 0xFF && !firstWrite)
-			data_address_pointer = nextDataAddressPointer;
-
-		if (firstWrite)
-			firstWrite = 0;
-
-	}	// else nextDataAddressPointer >= currentBlockEndAddress
+	//if already at the end of block, setup next block
+	blockAddrStart = START_ADDRESS + 1 + (newestBlockID * BLOCK_SIZE * STORED_DATA_SIZE)
+			+ newestBlockID;
+	blockAddrEnd = blockAddrStart + (BLOCK_SIZE * STORED_DATA_SIZE) - STORED_DATA_SIZE;
 
 #if DEBUG
-	byte b;
-	Serial.print(F("data_address_pointer= "));
-	Serial.println(data_address_pointer);
-	Serial.print(F("counter_pointer= "));
-	Serial.println(counter_pointer);
-	//update counter
-	EEPROM.write(data_address_pointer, counter_pointer);
-	//update data
-	for ( a = 1; a < STORED_DATA_SIZE; a++ ) {
-		b = *data++;
-		EEPROM.write(data_address_pointer + a, b);
-		Serial.print(b);
-		Serial.print(' ');
+	Serial.print(F("blockAddrStart= "));
+	Serial.println(blockAddrStart);
+	Serial.print(F("blockAddrEnd= "));
+	Serial.println(blockAddrEnd);
+#endif	//#if DEBUG
+
+	if (newestDataAddr >= blockAddrEnd) {
+		//- increment next block id & counter
+		newestBlockID++;
+		if (newestBlockID >= BLOCK_NUM)
+			newestBlockID = 0;
+
+		newestBlockCounter++;
+		if (newestBlockCounter > COUNTER_MAX)
+			newestBlockCounter = 0;
+
+		if (newestBlockID == 0)
+			blockAddrStart = START_ADDRESS + 1;
+		else
+			blockAddrStart = blockAddrEnd + STORED_DATA_SIZE + 1;
+		blockAddrEnd = blockAddrStart + (BLOCK_SIZE * STORED_DATA_SIZE) - STORED_DATA_SIZE;
+
+#if DEBUG
+		Serial.print(F("New blockAddrStart= "));
+		Serial.println(blockAddrStart);
+		Serial.print(F("New blockAddrEnd= "));
+		Serial.println(blockAddrEnd);
+#endif	//#if DEBUG
+
+		EEPROM.write(blockAddrStart - 1, newestBlockCounter);
+		//- find its newestDataCounter, which is at the end of block, and increment it
+		newestDataCounter = EEPROM.read(blockAddrEnd);
+
+		//unwritten
+		if (newestDataCounter > COUNTER_MAX)
+			newestDataCounter = 0;
+		else {
+			newestDataCounter++;
+			if (newestDataCounter > COUNTER_MAX)
+				newestDataCounter = 0;
+		}
+
+		//- put it at the start of block
+		newestDataAddr = blockAddrStart;
+#if DEBUG
+		Serial.print(F("prev newestDataCounter= "));
+		Serial.print(EEPROM.read(blockAddrEnd));
+		Serial.print(F(" @"));
+		Serial.println(blockAddrEnd);
+
+		Serial.print(F("newestDataCounter= "));
+		Serial.print(newestDataCounter);
+		Serial.print(F(" @"));
+		Serial.println(newestDataAddr);
+
+#endif	//#if DEBUG
+	}	//(newestDataAddr == blockAddrEnd)
+	else {
+		if (newestDataCounter > COUNTER_MAX)
+			newestDataCounter = 0;
+		else {
+			newestDataCounter++;
+			newestDataAddr += STORED_DATA_SIZE;
+		}
 	}
-	Serial.println();
-#else
-	//update counter
-	EEPROM.write(data_address_pointer, counter_pointer);
-	//update data
+
+	EEPROM.write(newestDataAddr, newestDataCounter);
+	//- update data
 	for ( a = 1; a < STORED_DATA_SIZE; a++ )
-		EEPROM.write(data_address_pointer + a, *data++);
+		EEPROM.write(newestDataAddr + a, *data++);
+}
+
+void StorageBank::updateBlock()
+{
+	byte prevBlockCounter = 0;
+	byte blockCounter = 0;
+	uint16_t prevBlockCounterAddr = 0;
+	uint16_t blockCounterAddr = 0;
+	uint16_t temAddr = 0;
+	byte a;
+	bool validBlockFormat = 0;
+
+	blockCounterAddr = START_ADDRESS;
+	blockCounter = EEPROM.read(blockCounterAddr);
+	prevBlockCounterAddr = START_ADDRESS + ((BLOCK_NUM - 1) * BLOCK_SIZE * STORED_DATA_SIZE)
+			+ (BLOCK_NUM - 1);
+	prevBlockCounter = EEPROM.read(prevBlockCounterAddr);
+
+	if (prevBlockCounter >= COUNTER_MAX) {
+		if (blockCounter == 0 || blockCounter == 0xFF)
+			validBlockFormat = 1;
+	}
+	else {
+		if ((blockCounter == prevBlockCounter + 1)
+				|| (prevBlockCounter == blockCounter + BLOCK_NUM - 1))
+			validBlockFormat = 1;
+	}
+
+#if DEBUG
+	Serial.println();
+	Serial.print(F("prevBlockCounterAddr= "));
+	Serial.println(prevBlockCounterAddr);
+	Serial.print(F("prevBlockCounter= "));
+	Serial.println(prevBlockCounter);
+	Serial.print(F("blockCounter= "));
+	Serial.println(blockCounter);
+	Serial.print(F("validBlockFormat= "));
+	Serial.println(validBlockFormat);
+	Serial.println();
+#endif	//#if DEBUG
+
+	if (!validBlockFormat) {
+		clearEEPROM();
+		prevBlockCounter = 0;
+	}
+	else {
+		prevBlockCounterAddr = blockCounterAddr;
+		prevBlockCounter = blockCounter;
+
+		//update block counter & its address
+		temAddr = START_ADDRESS;
+		for ( a = 1; a < BLOCK_NUM; a++ ) {
+			temAddr += (BLOCK_SIZE * STORED_DATA_SIZE) + 1;
+
+			blockCounterAddr = temAddr;
+			blockCounter = EEPROM.read(blockCounterAddr);
+
+#if DEBUG
+			Serial.print(F("prev:now = "));
+			Serial.print(prevBlockCounter);
+			Serial.print(':');
+			Serial.println(blockCounter);
+#endif	//#if DEBUG
+
+			if (blockCounter == prevBlockCounter + 1) {
+				prevBlockCounterAddr = blockCounterAddr;
+				prevBlockCounter = blockCounter;
+			}
+			else
+				break;
+		}
+
+		//update block ID
+		newestBlockID = getBlockID(prevBlockCounterAddr);
+
+		newestBlockCounter = prevBlockCounter;
+		//update data counter & its address
+		newestDataCounter = getNewestDataCounter(newestBlockID, &newestDataAddr);
+	}
+
+#if DEBUG
+	Serial.println();
+	Serial.print(F("newestBlockID= "));
+	Serial.println(newestBlockID);
+	Serial.print(F("block counter= "));
+	Serial.println(newestBlockCounter);
+	Serial.println();
+	Serial.print(F("newestDataCounter= "));
+	Serial.println(newestDataCounter);
+	Serial.print(F("newestDataAddr= "));
+	Serial.println(newestDataAddr);
+	Serial.println();
 #endif	//#if DEBUG
 
 }
 
-byte StorageBank::findCurrentDataAddress()
+byte StorageBank::getBlockID(uint16_t addr)
 {
-	uint16_t addr = 0;
-	uint16_t temAddr = 0;
-	uint16_t maxCounter = 0;
-	uint16_t a, b;
-	uint16_t currentBlockStartAddress;
+	byte id = 0;
+	uint16_t blockStart, blockEnd;
+	byte a;
 
-	currentBlockStartAddress = (active_block * BLOCK_DATA_SIZE) + START_ADDRESS + 1;
+	for ( a = 0; a < BLOCK_NUM; a++ ) {
+		blockStart = START_ADDRESS + (a * BLOCK_SIZE * STORED_DATA_SIZE) + a;
+		blockEnd = START_ADDRESS + ((a + 1) * BLOCK_SIZE * STORED_DATA_SIZE) + (a + 1);
+#if DEBUG
+		Serial.print(F("start:end -> "));
+		Serial.print(blockStart);
+		Serial.print(':');
+		Serial.println(blockEnd);
+#endif	//#if DEBUG
 
-	maxCounter = EEPROM.read(currentBlockStartAddress);
-	addr = currentBlockStartAddress;
-
-	for ( a = 1; a < BLOCK_DATA_SIZE; a++ ) {
-		temAddr = currentBlockStartAddress + (a * STORED_DATA_SIZE);
-		b = EEPROM.read(temAddr);
-
-		//unwritten block_data
-		if (b == 0xFF)
+		if (addr >= blockStart && addr < blockEnd) {
+			id = a;
 			break;
-		else {
-			//counter reset found
-			if (b == 0) {
-				if (maxCounter == counter_max) {
-					maxCounter = 0;
-					addr = temAddr;
-				}
-				else
-					break;
-			}
-			//if next counter is jump high
-			else if (b > maxCounter + 1)
-				break;
-			else {
-				maxCounter = b;
-				addr = temAddr;
-			}
-		}	// else b == 0xFF
+		}
 	}
 
-	data_address_pointer = addr;
+	return id;
+}
 
-	return maxCounter;
+uint16_t StorageBank::getNewestDataCounter(uint16_t blockNum, uint16_t* dataAddr)
+{
+	byte prevDataCounter = 0;
+	uint16_t prevDataAddress = 0;
+	uint16_t dataAddress = 0;
+	uint16_t blockAddress = 0;
+	uint16_t startBlockAddress = 0;
+	byte dataCounter;
+	byte a, b;
+	bool validBlockFormat = 0;
+
+	// get block's start data address
+	blockAddress = START_ADDRESS + (blockNum * BLOCK_SIZE * STORED_DATA_SIZE) + blockNum;
+	dataAddress = blockAddress + 1;
+	// get block's end data address
+	blockAddress = START_ADDRESS + ((blockNum + 1) * BLOCK_SIZE * STORED_DATA_SIZE) + blockNum + 1;
+	prevDataAddress = blockAddress - STORED_DATA_SIZE;
+
+	//get start data counter & end data counter
+	dataCounter = EEPROM.read(dataAddress);
+	prevDataCounter = EEPROM.read(prevDataAddress);
+
+	if (prevDataCounter >= COUNTER_MAX) {
+		if (dataCounter == 0 || dataCounter > COUNTER_MAX)
+			validBlockFormat = 1;
+	}
+	else {
+		if ((dataCounter == prevDataCounter + 1)
+				|| (prevDataCounter = dataCounter + BLOCK_SIZE - 1))
+			validBlockFormat = 1;
+	}
+
+#if DEBUG
+	Serial.println();
+	Serial.print(F("block num= "));
+	Serial.println(blockNum);
+
+	Serial.print(F("prevDataCounter= "));
+	Serial.print(prevDataCounter, HEX);
+	Serial.print(F(" @ "));
+	Serial.println(prevDataAddress);
+	Serial.print(F("dataCounter= "));
+	Serial.print(dataCounter, HEX);
+	Serial.print(F(" @ "));
+	Serial.println(dataAddress);
+	Serial.println();
+#endif	//#if DEBUG
+
+	if (!validBlockFormat) {
+#if DEBUG
+		Serial.print(F("data format incorrect, start clearing blockNum-"));
+		Serial.println(blockNum);
+#endif	//#if DEBUG
+		*dataAddr = dataAddress;
+		for ( a = 0; a < BLOCK_SIZE; a++ ) {
+			for ( b = 0; b < STORED_DATA_SIZE; b++ )
+				EEPROM.write(dataAddress++, 0xFF);
+		}
+		prevDataCounter = COUNTER_MAX;
+#if DEBUG
+		Serial.println(F("done clearing block"));
+#endif	//#if DEBUG
+
+	}
+	else {
+		prevDataAddress = dataAddress;
+		prevDataCounter = dataCounter;
+
+#if DEBUG
+		Serial.print(F("start data address: "));
+		Serial.println(dataAddress);
+		Serial.println(BLOCK_SIZE);
+		Serial.println(STORED_DATA_SIZE);
+#endif	//#if DEBUG
+
+		startBlockAddress= dataAddress;
+		if (prevDataCounter != COUNTER_MAX) {
+			for ( a = 1; a < BLOCK_SIZE; a++ ) {
+				dataAddress = startBlockAddress + (a * STORED_DATA_SIZE);
+				dataCounter = EEPROM.read(dataAddress);
+
+#if DEBUG
+				Serial.println(a);
+				Serial.print(F("prevDataCounter= "));
+				Serial.print(prevDataCounter, HEX);
+				Serial.print(F(" @"));
+				Serial.println(prevDataAddress);
+				Serial.print(F("dataCounter= "));
+				Serial.print(dataCounter, HEX);
+				Serial.print(F(" @"));
+				Serial.println(dataAddress);
+#endif	//#if DEBUG
+
+				if (dataCounter == prevDataCounter + 1) {
+					prevDataCounter = dataCounter;
+					prevDataAddress = dataAddress;
+				}
+				else
+					//found newest
+					break;
+			}
+		}
+
+		*dataAddr = prevDataAddress;
+	}
+
+#if DEBUG
+	Serial.print(prevDataCounter, HEX);
+	Serial.print(F(" @"));
+	Serial.println(prevDataAddress);
+#endif	//#if DEBUG
+
+	return prevDataCounter;
+}
+
+void StorageBank::clearEEPROM()
+{
+	uint16_t spaceEnded = START_ADDRESS + (BLOCK_NUM * BLOCK_SIZE * STORED_DATA_SIZE) + BLOCK_NUM;
+
+#if DEBUG
+	Serial.println(F("Clearing space:"));
+	Serial.print(F("address start= "));
+	Serial.println(START_ADDRESS);
+	Serial.print(F("address end= "));
+	Serial.println(spaceEnded);
+#endif	//#if DEBUG
+
+	EEPROM.write(START_ADDRESS, 0);
+	for ( uint16_t a = START_ADDRESS + 1; a < spaceEnded + 1; a++ ) {
+		if (EEPROM.read(a) != 0xFF)
+			EEPROM.write(a, 0xFF);
+	}
+
+	newestBlockID = 0;
+	newestBlockCounter = 0;
+	newestDataAddr = START_ADDRESS + 1;
+	newestDataCounter = 0xFF;
+
+#if DEBUG
+	Serial.println(F("done clearing!"));
+#endif	//#if DEBUG
+
+}
+
+void StorageBank::errorMessage(String* s)
+{
+	*s = "";
+
+	if (error & ERR_SPACE_SIZE)
+		*s += F("Space size exceeded current micro\r\n");
+	if (error & ERR_COUNTER_EXCEEDED)
+		*s += F("block size >= COUNTER_MAX (251)\r\n");
+	if (error & ERR_COUNTER_MODULO)
+		*s += F("blockNum * blockSize != COUNTER_MAX (251)\r\n");
 }
