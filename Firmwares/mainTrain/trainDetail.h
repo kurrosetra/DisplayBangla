@@ -36,7 +36,7 @@ struct Train_Info
 
 struct Train_Detail
 {
-	byte lang;		// menu language (0=en, 1=ba)
+	bool lang;		// menu language (0=en, 1=ba)
 	Train_Info trainInfo;		// current train's info
 	Coach_List coach;	// current coach's info
 	bool masterMode;	// master/slave mode (slave=0, master=1)

@@ -38,3 +38,4 @@ RemoteSystemsTempFiles/
 Firmwares/storageBank/.*
 Firmwares/storageBank/sloeber.ino.cpp
 Firmwares/storageBank/Release/
+Documents/~$storageBankAddress.xlsx
