@@ -4,9 +4,8 @@
  * To store and load data to EEPROM for ATMega family
  * Illustration:
  *
- * [Block 2] <<--------------------------------------------------------<< ACTIVE BLOCK at START_ADDRESS
  * ------------------------------------------------------------------
- * |[BLOCK 0]                       |[BLOCK 2]                      |
+ * |[BLOCK 0 COUNTER]               |[BLOCK 2 COUNTER]              |
  * |--------------------------------|-------------------------------|
  * |                                |[COUNTER-2][DATA-2]            |
  * |                                |[COUNTER-1][DATA-2]            |
@@ -15,11 +14,14 @@
  * |                                |[OLD_COUNTER+1][OLD_DATA+1]    |
  * |                                |[OLD_COUNTER+1][OLD_DATA+2]    |
  * |--------------------------------|-------------------------------|
- * |[BLOCK 1]                       |[BLOCK 3]                      |
+ * |[BLOCK 1 COUNTER]               |[BLOCK 3 COUNTER]              |
  * |--------------------------------|-------------------------------|
  * |                                |                               |
  * |                                |                               |
  * ------------------------------------------------------------------
+ *
+ * Note:
+ * - each block has its own data counter
  *
  *  Created on: Mar 28, 2018
  *      Author: miftakur
@@ -33,42 +35,63 @@
 
 #define DEBUG							0
 
-//BLOCK_COUNTER_MAX != 0xFF (default value unwritten eeprom)
-#define BLOCK_COUNTER_MAX				254
-//BLOCK_DATA_COUNTER_MAX < BLOCK_COUNTER_MAX, to avoid duplicate block counter in a block
-#define BLOCK_DATA_COUNTER_MAX			253
+// there's none that make COUNTER_MAX-1's modulo = 0
+#define COUNTER_MAX						252
+
+#define ERR_SPACE_SIZE					0b1
+#define ERR_COUNTER_EXCEEDED			0b10
+#define ERR_COUNTER_MODULO				0b100
 
 class StorageBank: public EEPROMClass
 {
 private:
 	uint16_t START_ADDRESS;   	    	// start storage address in EEPROM
-	byte BLOCK_NUM_SIZE;         		// max number of blocks to create
-	byte BLOCK_DATA_SIZE;        		// max number of block STORED_DATA_SIZE in each block
 	byte STORED_DATA_SIZE;        		// fixed size of data to store in EEPROM + 1 Byte Counter
-	byte active_block;					// current active block
-	uint16_t block_address_pointer;		// address pointer to active block
-	uint16_t data_address_pointer;		// address pointer to newest data
-	byte counter_pointer;				// current counter in active block
-	byte counter_max;					// max of counter_pointer
-	bool sizeError;
-	bool firstWrite=0;
+	byte BLOCK_NUM;  		       		// max number of blocks to create
+	byte BLOCK_SIZE;  		      		// max number of STORED_DATA_SIZE in each block
+	byte newestBlockID;					// current active block
+	byte newestBlockCounter;			// newest block counter, always < COUNTER_MAX
+	byte newestDataCounter;				// newest data counter in block, always < COUNTER_MAX
+	uint16_t newestDataAddr;			// newest data address
+	bool error;
 
-	byte findCurrentDataAddress();
+	/**
+	 * update:
+	 * - active_block
+	 * - newestBlockCounter
+	 */
+	void updateBlock();
+	byte getBlockID(uint16_t addr);
+//	/**
+//	 *  - change block's counter
+//	 *  - find newestDataCounter which is at the end of next block
+//	 *  - change first data block's counter
+//	 */
+//	void setupNextBlock();
+	/**
+	 * get the newestDataCounter, used for {@link read} & {@link write} function
+	 *
+	 * @param blockNum block ID
+	 * @param *dataAddr
+	 * @return newestDataCounter in the {@link blockNum}
+	 */
+	uint16_t getNewestDataCounter(uint16_t blockNum, uint16_t *dataAddr);
+	void clearEEPROM();
 
 public:
 	/**
 	 * constructor
 	 * @param blockNum number of blocks to create
-	 * @param blockDataSize number of block STORED_DATA_SIZE in each block
+	 * @param blockSize number of STORED_DATA_SIZE in each block
 	 * @param fixedDataSize fixed size of data to store in EEPROM
 	 * @param startAddress start storage address to occupy in EEPROM
 	 */
-	StorageBank(byte blockNum, byte blockDataSize, byte fixedDataSize, uint16_t startAddress = 0, byte counterMax =
-			BLOCK_DATA_COUNTER_MAX);
+	StorageBank(byte blockNum, byte blockSize, byte fixedDataSize, uint16_t startAddress = 0);
 
 	bool init();
 	void read(byte *data);
 	void write(byte *data);
+	void errorMessage(String *s);
 };
 
 #endif /* STORAGEBANK_H_ */

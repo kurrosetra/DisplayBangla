@@ -1,10 +1,16 @@
 #include "Arduino.h"
 #include "storageBank.h"
 
-StorageBank sb(3, 10, 4, 0, 25);
+const byte blockNum = 3;
+const byte blockSize = 5;
+const byte dataSize = 2;
+const uint16_t startAddress = 3000;
+
+StorageBank sb(blockNum, blockSize, dataSize, startAddress);
 
 void setup()
 {
+	String errMessage;
 	Serial.begin(115200);
 	Serial.println();
 	Serial.println(F("Example usage of storageBank.h"));
@@ -14,160 +20,106 @@ void setup()
 	Serial.print(F("size of EEPROM= "));
 	Serial.println(E2END + 1);
 
-	EEPROM.write(0, 0xFF);
-	sb.init();
+	if (sb.init()) {
+		sb.errorMessage(&errMessage);
+		Serial.println(errMessage);
+	}
+}
+
+void viewStorageBank()
+{
+	byte block;
+	byte dataBlock;
+	byte data;
+	uint16_t addr = startAddress;
+
+	Serial.print(F("Block number= "));
+	Serial.println(blockNum);
+	Serial.print(F("block size= "));
+	Serial.println(blockSize);
+	Serial.print(F("data size= "));
+	Serial.println(dataSize);
+
+	for ( block = 0; block < blockNum; block++ ) {
+		Serial.println(F("==========="));
+		Serial.print(F("addr= "));
+		Serial.println(addr);
+		Serial.print(F("Block["));
+		Serial.print(block);
+		Serial.print(F("] Counter= "));
+		Serial.println(EEPROM.read(addr));
+		Serial.println(F("==========="));
+		addr++;
+		for ( dataBlock = 0; dataBlock < blockSize; dataBlock++ ) {
+			for ( data = 0; data < dataSize + 1; data++ ) {
+				Serial.print(EEPROM.read(addr++), HEX);
+				Serial.print(' ');
+			}
+			Serial.println();
+		}
+		Serial.println();
+	}
+
+}
+
+void test0()
+{
+	static byte counter = 0;
+	byte data[dataSize];
+
+	memset(data, 0, dataSize);
+	data[0] = counter++;
+
+	sb.write(data);
+}
+
+void test1()
+{
+	uint16_t dataAddress[5] = { 3017, 3020, 3023, 3026, 3029 };
+	byte val = COUNTER_MAX - 4;
+
+	for ( int a = 0; a < 5; a++ ) {
+		EEPROM.write(dataAddress[a], val++);
+	}
 }
 
 void loop()
 {
 	char c;
+	byte dataRead[dataSize];
+	memset(dataRead, 0, dataSize);
 
 	if (Serial.available()) {
 		c = Serial.read();
 		switch (c)
 		{
 		case '1':
-			Serial.println(F("Start test1"));
+			Serial.println(F("Test 0"));
+			test0();
+			break;
+		case '2':
+			Serial.println(F("Test 1"));
 			test1();
 			break;
-		case 't':
-			Serial.println(F("Start writing"));
-			test();
-			break;
 		case 'r':
-			Serial.println(F("Start reading"));
-			read();
+			Serial.println(F("read:"));
+			sb.read(dataRead);
+			for ( int i = 0; i < dataSize; i++ ) {
+				Serial.print(dataRead[i], HEX);
+				Serial.print(' ');
+			}
+			Serial.println();
 			break;
-		case '0':
-			Serial.println(F("reset"));
-			EEPROM.write(0, 0xFF);
+		case 'c':
+			EEPROM.write(startAddress, 0xFF);
 			sb.init();
 			break;
-		}
-	}
-
-}
-
-void test1()
-{
-	byte a;
-	static byte firstByte = 0;
-	byte data1[4] = { firstByte, 1, 2, 3 };
-	byte data2[4] = { firstByte + 4, 5, 6, 7 };
-	firstByte++;
-
-	Serial.println(F("before"));
-	Serial.print(F("active_block= "));
-	Serial.println(EEPROM.read(0));
-	for ( a = 1; a < 21; a++ ) {
-		Serial.print(EEPROM.read(a));
-		Serial.print(' ');
-	}
-	Serial.println();
-
-	sb.write(data1);
-
-	Serial.println(F("write 1"));
-	Serial.print(F("active_block= "));
-	Serial.println(EEPROM.read(0));
-	for ( a = 1; a < 21; a++ ) {
-		Serial.print(EEPROM.read(a));
-		Serial.print(' ');
-	}
-	Serial.println();
-
-	sb.write(data2);
-
-	Serial.println(F("write 2"));
-	Serial.print(F("active_block= "));
-	Serial.println(EEPROM.read(0));
-	for ( a = 1; a < 21; a++ ) {
-		Serial.print(EEPROM.read(a));
-		Serial.print(' ');
-	}
-	Serial.println();
-
-}
-
-void test()
-{
-	byte a, b;
-	//data= [block]00[counter]
-	byte data[4];
-	static byte counter = 0;
-	bool brk = 0;
-
-	Serial.println();
-	for ( a = 0; a < 5; a++ ) {
-		for ( b = 0; b < 10; b++ ) {
-			if ((a >= 4) && (b > 1)) {
-				brk = 1;
-				b--;
-				break;
-			}
-			else {
-				data[0] = a;
-				data[1] = 0;
-				data[2] = 0;
-				data[3] = counter++;
-				if (counter >= 200)
-					counter = 0;
-
-				sb.write(data);
-				Serial.print(". ");
-			}
-		}
-
-		if (brk)
+		case 'v':
+			Serial.println(F("view storage bank:"));
+			viewStorageBank();
 			break;
-		Serial.println();
+		}
 	}
-	Serial.println();
-
-	Serial.println(F("newest data at:"));
-	Serial.print(F("Block: "));
-	Serial.println(a);
-	Serial.print(F("line: "));
-	Serial.println(b);
-	Serial.print(F("Data write: "));
-	Serial.print(data[0]);
-	Serial.print(' ');
-	Serial.print(data[1]);
-	Serial.print(' ');
-	Serial.print(data[2]);
-	Serial.print(' ');
-	Serial.print(data[3]);
-	Serial.print(' ');
-	Serial.println();
-
-	//
-	Serial.println();
-	for ( a = 1; a < 21; a++ ) {
-		Serial.print(EEPROM.read(a));
-		Serial.print(' ');
-	}
-	Serial.println();
-	for ( a = 51; a < 66; a++ ) {
-		Serial.print(EEPROM.read(a));
-		Serial.print(' ');
-	}
-	Serial.println();
 
 }
 
-void read()
-{
-	byte data[4];
-
-	sb.read(data);
-	Serial.print(F("Data read: "));
-	Serial.print(data[0]);
-	Serial.print(' ');
-	Serial.print(data[1]);
-	Serial.print(' ');
-	Serial.print(data[2]);
-	Serial.print(' ');
-	Serial.print(data[3]);
-	Serial.print(' ');
-	Serial.println();
-}
