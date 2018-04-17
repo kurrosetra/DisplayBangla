@@ -33,7 +33,11 @@
 #include "Arduino.h"
 #include <EEPROM.h>
 
-#define DEBUG							0
+#define DEBUG							1
+#if DEBUG
+# define ADV_DEBUG						0
+#endif	//#if DEBUG
+
 
 // there's none that make COUNTER_MAX-1's modulo = 0
 #define COUNTER_MAX						252
@@ -53,7 +57,7 @@ private:
 	byte newestBlockCounter;			// newest block counter, always < COUNTER_MAX
 	byte newestDataCounter;				// newest data counter in block, always < COUNTER_MAX
 	uint16_t newestDataAddr;			// newest data address
-	bool error;
+	byte error;
 
 	/**
 	 * update:

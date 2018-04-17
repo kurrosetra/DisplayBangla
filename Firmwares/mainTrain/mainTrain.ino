@@ -305,14 +305,17 @@ void lcdPageUpdate(byte dispStep)
 						temTrain[1].trainInfo.lastTrainPosition;
 			else
 				temTrain[1].trainInfo.currentTrainPosition--;
+			//if new currentTrainPosition is not *.PID
 			lcdPageChange (lcdPageSubMenu);
 			break;
 		case DISP_STEP_NEXT:
+			//
 			if (temTrain[1].trainInfo.currentTrainPosition
 					== temTrain[1].trainInfo.lastTrainPosition)
 				temTrain[1].trainInfo.currentTrainPosition = 0;
 			else
 				temTrain[1].trainInfo.currentTrainPosition++;
+			//if new currentTrainPosition is not *.PID
 			lcdPageChange(lcdPageSubMenu);
 			break;
 		case DISP_STEP_BACK:
