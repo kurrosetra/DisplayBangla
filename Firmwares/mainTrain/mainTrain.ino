@@ -117,7 +117,7 @@ byte settingChange = 0;
 
 StorageBank storage(blockNum, blockSize, dataSize);
 
-uint32_t IDLE_TIMEOUT = 10000;
+uint32_t IDLE_TIMEOUT = 30000;
 uint32_t idleTimer = 500;
 
 void setup()
@@ -321,7 +321,7 @@ void lcdPageUpdate(byte dispStep)
 				trainDetail = temTrain[1];
 				trainDetail.trainInfo.trainRoute = 0;
 				trainDetail.trainInfo.currentStationPosition = 0;
-//				sdUpdateTrainDetail(&trainDetail);
+				sdUpdateTrainDetail(&trainDetail);
 				saveSetting();
 			}
 			displayState = DISP_MENU;
@@ -476,6 +476,10 @@ void lcdPageUpdate(byte dispStep)
 		}
 		break;
 	case DISP_MENU_SYSTEM_INFO:
+		if (dispStep == DISP_STEP_BACK) {
+			displayState = DISP_MENU;
+			lcdPageChange(lcdPageMenu);
+		}
 		break;
 	case DISP_MENU_COACH_TYPE:
 		switch (dispStep)
@@ -799,6 +803,8 @@ void lcdPageSubMenu()
 		else
 			highlightLine = 2;
 		break;
+	case DISP_MENU_SYSTEM_INFO:
+		break;
 	case DISP_MENU_COACH:
 		s[1] = trainDetail.coach.name;
 
@@ -1087,7 +1093,7 @@ bool sdUpdateTrainDetail(Train_Detail * td)
 		while (filename.available()) {
 			c = filename.read();
 			s += c;
-			if (c == '\n') {
+			if (c == '\n' || (!filename.available() && startStation && trainNumFound == 0)) {
 				s.trim();
 
 				if (trainNumFound) {
@@ -1119,7 +1125,7 @@ bool sdUpdateTrainDetail(Train_Detail * td)
 
 				if (startStation) {
 					if (s.length() > 0) {
-						if (s.indexOf("AWAL") >= 0) {
+						if (s.indexOf(",AWAL,") >= 0) {
 							if (td->lang == ENGLISH_LANG) {
 								akhir = s.indexOf(',');
 								tem = s.substring(0, akhir);
@@ -1129,8 +1135,9 @@ bool sdUpdateTrainDetail(Train_Detail * td)
 								tem = s.substring(awal);
 							}
 							td->trainInfo.routeStart = tem;
+							lineCount = 0;
 						}
-						else if (s.indexOf("AKHIR") >= 0) {
+						else if (s.indexOf(",AKHIR,") >= 0) {
 							if (td->lang == ENGLISH_LANG) {
 								akhir = s.indexOf(',');
 								tem = s.substring(0, akhir);
@@ -1224,6 +1231,12 @@ void sdFindStation(String *str)
 	bool startStation = 0;
 	uint16_t posLine[3];
 
+#if DEBUG
+	Serial.print(F("currentStationPosition= "));
+	Serial.println(trainDetail.trainInfo.currentStationPosition);
+	Serial.println(trainDetail.trainInfo.lastStationPosition);
+#endif	//#if DEBUG
+
 	if (trainDetail.trainInfo.currentStationPosition == 0) {
 		posLine[1] = 0;
 		if (trainDetail.trainInfo.trainRoute) {
@@ -1264,7 +1277,7 @@ void sdFindStation(String *str)
 		while (filename.available()) {
 			c = filename.read();
 			line += c;
-			if (c == '\n') {
+			if (c == '\n' || (!filename.available() && startStation)) {
 				line.trim();
 
 				if (startStation) {
@@ -1291,6 +1304,7 @@ void sdFindStation(String *str)
 				}	//(startStation)
 				else {
 					if (line.indexOf("//DATA//") >= 0) {
+						Serial.println(F("start station"));
 						startStation = 1;
 						lineCount = 0;
 					}	//(line.indexOf("//DATA//") >= 0)
