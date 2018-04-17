@@ -1,10 +1,10 @@
 #include "Arduino.h"
 #include "storageBank.h"
 
-const byte blockNum = 5;
-const byte blockSize = 100;
-const byte dataSize = 7;
-const uint16_t startAddress = 0;
+const byte blockNum = 3;
+const byte blockSize = 5;
+const byte dataSize = 2;
+const uint16_t startAddress = 3000;
 
 StorageBank sb(blockNum, blockSize, dataSize, startAddress);
 
@@ -13,7 +13,6 @@ void setup()
 	String errMessage;
 	Serial.begin(115200);
 	Serial.println();
-	Serial.println(F("=============================="));
 	Serial.println(F("Example usage of storageBank.h"));
 	Serial.println(F("=============================="));
 	Serial.println();
@@ -114,7 +113,6 @@ void loop()
 		case 'c':
 			EEPROM.write(startAddress, 0xFF);
 			sb.init();
-			Serial.println(F("clear storage Banks"));
 			break;
 		case 'v':
 			Serial.println(F("view storage bank:"));

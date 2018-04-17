@@ -34,18 +34,11 @@ bool StorageBank::init()
 	if (eeprom_size_requirement >= eeprom_size_available)
 		error |= ERR_SPACE_SIZE;
 
-	if (BLOCK_SIZE >= COUNTER_MAX || BLOCK_NUM >= COUNTER_MAX)
+	if (BLOCK_SIZE >= COUNTER_MAX)
 		error |= ERR_COUNTER_EXCEEDED;
 
-//	if (BLOCK_NUM * BLOCK_SIZE >= COUNTER_MAX)
-//		error |= ERR_COUNTER_MODULO;
-
-#if DEBUG
-	Serial.print(F("eeprom_size_requirement= "));
-	Serial.println(eeprom_size_requirement);
-	Serial.print(F("error= "));
-	Serial.println(error);
-#endif	//#if DEBUG
+	if (BLOCK_NUM * BLOCK_SIZE >= COUNTER_MAX)
+		error |= ERR_COUNTER_MODULO;
 
 	//unformatted eeprom space
 	if (EEPROM.read(START_ADDRESS) == 0xFF)
@@ -206,12 +199,12 @@ void StorageBank::updateBlock()
 			blockCounterAddr = temAddr;
 			blockCounter = EEPROM.read(blockCounterAddr);
 
-//#if DEBUG
-//			Serial.print(F("prev:now = "));
-//			Serial.print(prevBlockCounter);
-//			Serial.print(':');
-//			Serial.println(blockCounter);
-//#endif	//#if DEBUG
+#if DEBUG
+			Serial.print(F("prev:now = "));
+			Serial.print(prevBlockCounter);
+			Serial.print(':');
+			Serial.println(blockCounter);
+#endif	//#if DEBUG
 
 			if (blockCounter == prevBlockCounter + 1) {
 				prevBlockCounterAddr = blockCounterAddr;
@@ -345,13 +338,13 @@ uint16_t StorageBank::getNewestDataCounter(uint16_t blockNum, uint16_t* dataAddr
 		Serial.println(STORED_DATA_SIZE);
 #endif	//#if DEBUG
 
-		startBlockAddress = dataAddress;
+		startBlockAddress= dataAddress;
 		if (prevDataCounter != COUNTER_MAX) {
 			for ( a = 1; a < BLOCK_SIZE; a++ ) {
 				dataAddress = startBlockAddress + (a * STORED_DATA_SIZE);
 				dataCounter = EEPROM.read(dataAddress);
 
-#if ADV_DEBUG
+#if DEBUG
 				Serial.println(a);
 				Serial.print(F("prevDataCounter= "));
 				Serial.print(prevDataCounter, HEX);
@@ -361,7 +354,7 @@ uint16_t StorageBank::getNewestDataCounter(uint16_t blockNum, uint16_t* dataAddr
 				Serial.print(dataCounter, HEX);
 				Serial.print(F(" @"));
 				Serial.println(dataAddress);
-#endif	//#if ADV_DEBUG
+#endif	//#if DEBUG
 
 				if (dataCounter == prevDataCounter + 1) {
 					prevDataCounter = dataCounter;
@@ -423,5 +416,5 @@ void StorageBank::errorMessage(String* s)
 	if (error & ERR_COUNTER_EXCEEDED)
 		*s += F("block size >= COUNTER_MAX (251)\r\n");
 	if (error & ERR_COUNTER_MODULO)
-		*s += F("blockNum * blockSize >= COUNTER_MAX (251)\r\n");
+		*s += F("blockNum * blockSize != COUNTER_MAX (251)\r\n");
 }
