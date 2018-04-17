@@ -119,8 +119,6 @@ StorageBank storage(blockNum, blockSize, dataSize);
 
 uint32_t IDLE_TIMEOUT = 10000;
 uint32_t idleTimer = 500;
-uint32_t sendOtherTimer = 100;
-uint32_t SEND_TIMEOUT = 10000;
 
 void setup()
 {
@@ -148,8 +146,6 @@ void setup()
 
 	lcdPageUpdate(DISP_STEP_NEXT);
 
-	dataInit();
-
 	Serial.println(F("no error"));
 }
 
@@ -172,9 +168,6 @@ void loop()
 	}
 
 	btnHandler();
-
-	dataSend();
-	dataRecv();
 }
 
 /**
@@ -1505,7 +1498,6 @@ void loadSetting()
 	//create non-null data
 	trainDetail.trainInfo.trainID = 40;
 	trainDetail.trainInfo.currentStationPosition = 0;
-	trainDetail.trainInfo.trainRoute = 0;
 	trainDetail.lang = ENGLISH_LANG;
 	trainDetail.masterMode = MASTER_MODE;
 	trainDetail.gpsMode = MANUAL_MODE;
@@ -1527,17 +1519,14 @@ void loadSetting()
 		trainDetail.coach.number = data[5];
 
 	if (data[6] != 0xFF) {
-		trainDetail.trainInfo.trainRoute = bitRead(data[6], 0);
-		trainDetail.lang = bitRead(data[6], 1);
-		trainDetail.masterMode = bitRead(data[6], 2);
-		trainDetail.gpsMode = bitRead(data[6], 3);
+		trainDetail.lang = bitRead(data[6], 0);
+		trainDetail.masterMode = bitRead(data[6], 1);
+		trainDetail.gpsMode = bitRead(data[6], 2);
 	}
 
 #if DEBUG
 	Serial.print(F("trainID= "));
 	Serial.println(trainDetail.trainInfo.trainID);
-	Serial.print(F("trainRoute= "));
-	Serial.println(trainDetail.trainInfo.trainRoute);
 	Serial.print(F("currentStationPosition= "));
 	Serial.println(trainDetail.trainInfo.currentStationPosition);
 	Serial.print(F("coach.nameID= "));
@@ -1574,8 +1563,6 @@ void saveSetting()
 	data[4] = trainDetail.coach.nameID;
 	//1B coach's number
 	data[5] = trainDetail.coach.number;
-	//1b trainRoute
-	bitWrite(data[6], 0, trainDetail.trainInfo.trainRoute);
 	//1b language
 	bitWrite(data[6], 0, trainDetail.lang);
 	//1b master
@@ -1588,8 +1575,6 @@ void saveSetting()
 #if DEBUG
 	Serial.print(F("trainID= "));
 	Serial.println(trainDetail.trainInfo.trainID);
-	Serial.print(F("trainRoute= "));
-	Serial.println(trainDetail.trainInfo.trainRoute);
 	Serial.print(F("currentStationPosition= "));
 	Serial.println(trainDetail.trainInfo.currentStationPosition);
 	Serial.print(F("coach.nameID= "));
@@ -1613,197 +1598,4 @@ void saveSetting()
 	///updating trainDetail struct
 	sdUpdateTrainDetail(&trainDetail);
 
-}
-
-void dataInit()
-{
-	Serial3.begin(9600);
-	Serial2.begin(9600);
-}
-
-void dataSend()
-{
-	static uint32_t sendDisplayTimer = 100;
-	byte data[dataSize];
-	String s = "$";
-	uint16_t tem = 0;
-	static byte dispCounter = 0;
-
-	if (millis() > sendOtherTimer) {
-		sendOtherTimer = millis() + SEND_TIMEOUT;
-
-		if (trainDetail.masterMode == MASTER_MODE) {
-			storage.read(data);
-
-			//$[trainID],[currentStationPos],[coach_nameID],[coach_number],[add info]*
-			tem = (uint16_t) data[1] << 8 | data[0];
-			s += tem;
-			s += String(',');
-			tem = (uint16_t) data[3] << 8 | data[2];
-			s += tem;
-			s += String(',');
-			s += data[4];
-			s += String(',');
-			s += data[5];
-			s += String(',');
-			s += data[6];
-			s += String('*');
-
-			//TODO [Apr 2, 2018, miftakur]:
-			//sending to other coach
-#if DEBUG
-			Serial.println();
-			Serial.println(F("sending data:"));
-			Serial.println(s);
-			Serial.println();
-#endif	//#if DEBUG
-			Serial3.print(s);
-		}
-	}
-
-	if (millis() > sendDisplayTimer) {
-		sendDisplayTimer = millis() + SEND_TIMEOUT;
-
-		//TODO [Apr 2, 2018, miftakur]:
-		//send to display module
-		s = "$";
-		s += dispCounter;
-		s += ',';
-		s += trainDetail.lang;
-		s += ',';
-		s += trainDetail.trainInfo.trainNum;
-//		s += ',';
-//		if (trainDetail.trainInfo.trainRoute) {
-//			s += trainDetail.trainInfo.routeEnd;
-//			s += ',';
-//			s += trainDetail.trainInfo.routeStart;
-//		}
-//		else {
-//			s += trainDetail.trainInfo.routeStart;
-//			s += ',';
-//			s += trainDetail.trainInfo.routeEnd;
-//		}
-		s += ',';
-		s += trainDetail.trainInfo.currentStationName;
-		s += ',';
-		s += trainDetail.coach.name;
-		s += ',';
-		s += trainDetail.coach.number;
-		s += '*';
-
-		Serial2.println(s);
-	}
-}
-
-void dataRecv()
-{
-	static String incoming = "";
-	char c;
-	bool completedData = 0;
-	byte data[dataSize];
-	byte coach_nameID = menu_coach_list_length, coach_number = menu_coach_list_length;
-	uint16_t trainID = 0, currentStationPos = 0;
-	byte add_info = 0;
-	String tem;
-	byte awal, akhir;
-	bool errData = 0;
-	bool changeMaster = 0;
-	bool changeSetting = 0;
-
-	if (Serial3.available()) {
-		c = Serial3.read();
-
-		if (c == '$')
-			incoming = "";
-		else if (c == '*')
-			completedData = 1;
-
-		incoming += c;
-	}
-
-	if (completedData) {
-		//$[trainID],[currentStationPos],[coach_nameID],[coach_number],[add info]*
-		awal = 1;
-		akhir = incoming.indexOf(',', awal);
-		tem = incoming.substring(awal, akhir);
-		if (tem.length() > 0)
-			trainID = tem.toInt();
-		else
-			errData = 1;
-
-		awal = akhir + 1;
-		akhir = incoming.indexOf(',', awal);
-		tem = incoming.substring(awal, akhir);
-		if (tem.length() > 0)
-			currentStationPos = tem.toInt();
-		else
-			errData = 1;
-
-		awal = akhir + 1;
-		akhir = incoming.indexOf(',', awal);
-		tem = incoming.substring(awal, akhir);
-		if (tem.length() > 0)
-			coach_nameID = tem.toInt();
-		else
-			errData = 1;
-
-		awal = akhir + 1;
-		akhir = incoming.indexOf(',', awal);
-		tem = incoming.substring(awal, akhir);
-		if (tem.length() > 0)
-			coach_number = tem.toInt();
-		else
-			errData = 1;
-
-		awal = akhir + 1;
-		akhir = incoming.indexOf('*', awal);
-		tem = incoming.substring(awal, akhir);
-		if (tem.length() > 0)
-			add_info = tem.toInt();
-		else
-			errData = 1;
-
-		if (!errData && trainDetail.masterMode == SLAVE_MODE) {
-			if (trainDetail.masterMode == SLAVE_MODE) {
-				changeSetting = 1;
-			}
-			else {
-				if (coach_nameID < trainDetail.coach.nameID) {
-					//change masterMode to slaveMode
-					changeMaster = 1;
-					//change setting
-					changeSetting = 1;
-				}
-				else if (coach_nameID == trainDetail.coach.nameID) {
-					if (coach_number < trainDetail.coach.number) {
-						//change masterMode to slaveMode
-						changeMaster = 1;
-						//change setting
-						changeSetting = 1;
-					}
-				}
-			}
-		}
-
-		if (changeSetting) {
-			//current setting
-			storage.read(data);
-
-			data[0] = trainID & 0xFF;
-			data[1] = trainID >> 8;
-			data[2] = currentStationPos & 0xFF;
-			data[3] = currentStationPos >> 8;
-			bitWrite(data[6], 0, bitRead(add_info,0));
-			if (changeMaster)
-				bitWrite(data[6], 2, SLAVE_MODE);
-
-			saveSetting();
-		}
-
-		//TODO [Apr 2, 2018, miftakur]:
-		// worthed?
-//		sendOtherTimer = millis() + SEND_TIMEOUT / 2;
-
-		incoming = "";
-	}
 }
