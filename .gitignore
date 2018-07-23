@@ -37,9 +37,12 @@
 sloeber.ino.cpp
 Firmwares/mainTrain/.*
 Firmwares/mainTrain/Release/
+Firmwares/mainTrain/src/
 RemoteSystemsTempFiles/
 Firmwares/storageBank/.*
 Firmwares/storageBank/Release/
 Documents/~$storageBankAddress.xlsx
 Firmwares/test_mainTrain/.*
 Firmwares/test_mainTrain/Release/
+Firmwares/display*/
+Firmwares/.*
