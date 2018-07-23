@@ -46,3 +46,4 @@ Firmwares/test_mainTrain/.*
 Firmwares/test_mainTrain/Release/
 Firmwares/display*/
 Firmwares/.*
+*.rar

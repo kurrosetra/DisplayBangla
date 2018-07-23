@@ -8,7 +8,7 @@
 /**
  * DECLARATION
  */
-#define DEBUG						1
+#define DEBUG						0
 #if DEBUG
 # define LCD_DEBUG					1
 # define SD_DEBUG					1
@@ -118,11 +118,17 @@ Train_Detail_t trainDisplay;
 
 void setup()
 {
+	wdt_enable(WDT_TIMEOUT);
+
+	Serial.begin(115200);
 
 #if DEBUG
-	Serial.begin(115200);
 	Serial.println(F("Display Bangla - INKA firmware"));
 	uint32_t sdInitTimer = 0;
+#else
+	Serial.println(F("Display Bangla Controller Firmware"));
+	Serial.println(F("s/w version: 1.0.0"));
+	Serial.println(F("h/w version: 1.0.0"));
 #endif	//#if DEBUG
 
 	pinMode(LCD_SS_PIN, OUTPUT);
@@ -145,14 +151,15 @@ void setup()
 	Serial.println(F("us"));
 #endif	//#if DEBUG
 
-	wdt_enable(WDT_TIMEOUT);
-
 	coachGetParameter(&trainParameter);
 	lcdInit();
 	btnInit();
 	dataInit();
 
+#if DEBUG
 	Serial.println(F("no error"));
+#endif	//#if DEBUG
+
 }
 
 void loop()
@@ -661,7 +668,7 @@ void lcdPageMenu()
 
 void lcdPageSubMenu(Train_Detail_t * td)
 {
-	String title, s[3];
+	String title, s[3], tem;
 	byte highlightLine = 1;
 	byte a;
 	byte trainPointer[3] = { 0, 0, 0 };
@@ -674,6 +681,14 @@ void lcdPageSubMenu(Train_Detail_t * td)
 	{
 	case DISP_MENU_COACH:
 		s[1] = td->coachName;
+		if (td->coachName.length() < COACH_NAME_MAX_SIZE) {
+			tem = td->coachName;
+			for ( a = 0; a < (COACH_NAME_MAX_SIZE - td->coachName.length()); a++ )
+				tem += ' ';
+
+			td->coachName = tem;
+		}
+
 		highlightLine = 1;
 		break;
 	case DISP_MENU_TRAIN:
@@ -892,6 +907,8 @@ void masterFindAllTrains()
 	int i;
 	char c;
 
+	wdt_reset();
+
 #if DEBUG
 	Serial.println(F("clearing allTrainsName struct"));
 #endif	//#if DEBUG
@@ -909,7 +926,7 @@ void masterFindAllTrains()
 
 	//find trainID & size
 #if DEBUG
-	Serial.println(F("train files:"));
+	Serial.println(F("Find train files:"));
 #endif	//#if DEBUG
 	fileCounter = 0;
 	do {
@@ -940,13 +957,28 @@ void masterFindAllTrains()
 	root.close();
 	fileList.close();
 
+	wdt_reset();
+
 	//find train name
+#if DEBUG
+	Serial.println();
+	Serial.println(F("Find train names:"));
+#endif	//#if DEBUG
+
 	for ( a = 0; a < allTrainsName.size; a++ ) {
-		s = String(allTrainsName.trainID[a]) + ".PID";
+//		s = String(allTrainsName.trainID[a]) + ".PID";
+		s = allTrainsName.trainID[a];
+		s += ".PID";
+#if DEBUG
+		Serial.print(F("open "));
+		Serial.println(s);
+#endif	//#if DEBUG
+
 		theFile = SD.open(s);
 		if (theFile) {
 			line = "";
 			rows = 0;
+			sTem = "";
 			while (theFile.available()) {
 				c = theFile.read();
 
@@ -959,10 +991,17 @@ void masterFindAllTrains()
 					else
 						rows++;
 
-					if (rows == 2) {
+					if (rows >= 2) {
 						akhir = line.indexOf(';');
 						sTem = line.substring(0, akhir);
 						allTrainsName.trainName[a] = sTem;
+#if DEBUG
+						Serial.print(rows);
+						Serial.print("->");
+						Serial.print(line);
+						Serial.print(' ');
+						Serial.println(sTem);
+#endif	//#if DEBUG
 						break;
 					}
 
@@ -971,8 +1010,11 @@ void masterFindAllTrains()
 			}
 		}
 		theFile.close();
+		sTem = "";
 	}
 	digitalWrite(SD_SS_PIN, HIGH);
+
+	wdt_reset();
 }
 
 bool masterUpdateStation(Train_Detail_t *td, uint16_t pos, Station_State_e state)
@@ -983,6 +1025,8 @@ bool masterUpdateStation(Train_Detail_t *td, uint16_t pos, Station_State_e state
 	uint16_t stationSize = 0;
 	bool startStation = 0, endStation = 0;
 	byte awal, akhir;
+
+	wdt_reset();
 
 	s = String(td->trainInfo.trainID) + ".PID";
 #if DEBUG
@@ -1091,6 +1135,8 @@ bool masterUpdateStation(Train_Detail_t *td, uint16_t pos, Station_State_e state
 	}  //(file)
 	else
 		return false;
+
+	wdt_reset();
 
 	return true;
 }
@@ -1302,8 +1348,11 @@ void dataBusMasterSend()
 
 bool dataBusCreate(String *s)
 {
+	String _coachName=trainParameter.coachName;
+	_coachName.trim();
+
 	*s = "$";
-	*s += trainParameter.coachName;
+	*s += _coachName;
 	*s += ',';
 	*s += trainParameter.trainInfo.trainID;
 	*s += ',';

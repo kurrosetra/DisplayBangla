@@ -38,12 +38,12 @@ const byte button[4] =
 #define BUS_UART		Serial1
 #define DISP_UART		Serial3
 
-#define BUS_RT_INIT()				bitSet(DDRD,DDD4)
+#define BUS_RT_INIT()			bitSet(DDRD,DDD4)
 #define BUS_RT_TRANSMIT()		bitSet(PORTD,PORTD4)
 #define BUS_RT_RECEIVE()		bitClear(PORTD,PORTD4)
 
 #define DISP_RT_INIT()			bitSet(DDRJ,DDJ2)
-#define DISP_RT_TRANSMIT()	bitSet(PORTJ,PORTJ2)
+#define DISP_RT_TRANSMIT()		bitSet(PORTJ,PORTJ2)
 #define DISP_RT_RECEIVE()		bitClear(PORTJ,PORTJ2)
 
 #endif	//#if else BOX_OLD
