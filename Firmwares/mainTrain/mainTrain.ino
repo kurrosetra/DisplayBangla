@@ -10,10 +10,10 @@
  */
 #define DEBUG						1
 #if DEBUG
-# define LCD_DEBUG			1
-# define SD_DEBUG				1
-# define BUTTON_DEBUG		1
-# define DATA_DEBUG			0
+# define LCD_DEBUG					1
+# define SD_DEBUG					1
+# define BUTTON_DEBUG				1
+# define DATA_DEBUG					0
 
 #endif	//#if DEBUG
 
@@ -23,30 +23,6 @@
 /**
  * PINOUT
  */
-#define LCD_ALWAYS_ON			1
-#define TEST_LOCAL				0
-#define BOX_TEST					0
-
-#if BOX_TEST
-const byte MASTER_PIN = A4;
-const byte LCD_BACKLIGHT_PIN = A7;
-const byte LCD_SS_PIN = 48;
-const byte SD_SS_PIN = 53;
-const byte button[4] =
-{	A1/*RIGHT / SELECT*/, A3/*LEFT / BACK*/, A0 /*DOWN / NEXT*/, A2 /*UP / PREV*/};
-
-#define BUS_UART		Serial3
-#define DISP_UART		Serial2
-
-#define BUS_RT_INIT()				pinMode(A6,OUTPUT)
-#define BUS_RT_TRANSMIT()		digitalWrite(A6,HIGH)
-#define BUS_RT_RECEIVE()		digitalWrite(A6,LOW)
-
-#define DISP_RT_INIT()			;
-#define DISP_RT_TRANSMIT()	;
-#define DISP_RT_RECEIVE()		;
-
-#else
 
 const byte MASTER_PIN = A7;
 const byte LCD_BACKLIGHT_PIN = 6;
@@ -55,18 +31,17 @@ const byte SD_SS_PIN = 7;
 const byte button[4] =
 		{ A3/*RIGHT / SELECT*/, A6/*LEFT / BACK*/, A4 /*DOWN / NEXT*/, A5 /*UP / PREV*/};
 
-#define BUS_UART		Serial1
-#define DISP_UART		Serial3
+#define BUS_UART				Serial1
+#define DISP_UART				Serial3
 
-#define BUS_RT_INIT()				bitSet(DDRD,DDD4)
+#define BUS_RT_INIT()			bitSet(DDRD,DDD4)
 #define BUS_RT_TRANSMIT()		bitSet(PORTD,PORTD4)
 #define BUS_RT_RECEIVE()		bitClear(PORTD,PORTD4)
 
 #define DISP_RT_INIT()			bitSet(DDRJ,DDJ2)
-#define DISP_RT_TRANSMIT()	bitSet(PORTJ,PORTJ2)
+#define DISP_RT_TRANSMIT()		bitSet(PORTJ,PORTJ2)
 #define DISP_RT_RECEIVE()		bitClear(PORTJ,PORTJ2)
 
-#endif	//#if else BOX_TEST
 const uint32_t DEBOUNCE_DELAY = 100;
 
 /**
@@ -74,6 +49,8 @@ const uint32_t DEBOUNCE_DELAY = 100;
  * LCD Global variables
  * *******************************************************************************
  */
+
+#define LCD_ALWAYS_ON		1
 
 typedef enum
 {
@@ -89,7 +66,7 @@ typedef enum
 static const byte menu_setting_length = 3;
 const char *menu_setting_en[menu_setting_length] = { "Coach ID", "Train Name", "Manual / GPS Mode" };
 const char *menu_setting_bl[menu_setting_length] = { "~Coach ID", "~Train Name",
-	"~Manual / GPS Mode" };
+		"~Manual / GPS Mode" };
 byte menuPointer = 0;
 void (*pUpdatePage)(Train_Detail_t *td);
 byte coachPointer = 0;
@@ -97,6 +74,9 @@ byte coachPointer = 0;
 const uint16_t DATA_MAX_BUFSIZE = 256;
 String dataBus = "";
 String dataDisp = "";
+String dataMasterCoachId = "";
+bool masterConnected = false;
+const uint32_t CONN_LOST_TIMEOUT = 10000;
 const uint32_t BUS_SEND_TIMEOUT = 5000;
 const uint32_t DISP_SEND_TIMEOUT = 5000;
 uint32_t busSendTimer = BUS_SEND_TIMEOUT;
@@ -138,11 +118,11 @@ Train_Detail_t trainDisplay;
 
 void setup()
 {
-	wdt_enable(WDT_TIMEOUT);
 
 #if DEBUG
 	Serial.begin(115200);
 	Serial.println(F("Display Bangla - INKA firmware"));
+	uint32_t sdInitTimer = 0;
 #endif	//#if DEBUG
 
 	pinMode(LCD_SS_PIN, OUTPUT);
@@ -152,9 +132,21 @@ void setup()
 	pinMode(53, OUTPUT);
 	digitalWrite(53, HIGH);
 
-//	wdt_disable();
+#if DEBUG
+	sdInitTimer = micros();
+#endif	//#if DEBUG
+
 	sdInit();
-//	wdt_enable(WDT_TIMEOUT);
+
+#if DEBUG
+	sdInitTimer = micros() - sdInitTimer;
+	Serial.print(F("sdInit() time= "));
+	Serial.print(sdInitTimer);
+	Serial.println(F("us"));
+#endif	//#if DEBUG
+
+	wdt_enable(WDT_TIMEOUT);
+
 	coachGetParameter(&trainParameter);
 	lcdInit();
 	btnInit();
@@ -165,15 +157,25 @@ void setup()
 
 void loop()
 {
+	static uint32_t refreshLcdTimer = 0;
 	wdt_reset();
 
 	btnHandler();
 	dataHandler();
 
-	if (idleTimer && millis() > idleTimer) {
-		idleTimer = 0;
-		lcdPageChange (lcdPageMain);
-	}
+	if (idleTimer) {
+		if (millis() > idleTimer) {
+			idleTimer = 0;
+			lcdPageChange (lcdPageMain);
+		}
+	}  // idleTimer
+	else {
+		if (millis() > refreshLcdTimer) {
+			refreshLcdTimer = millis() + CONN_LOST_TIMEOUT;
+			lcdPageChange (lcdPageMain);
+		}
+	}	// else idleTimer
+
 }
 
 /**
@@ -184,7 +186,7 @@ void loop()
 void lcdInit()
 {
 	pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-	lcdBacklight(0);
+	lcdBacklight(1);
 	displayState = DISP_MAIN;
 	lcdPageChange (lcdPageMain);
 }
@@ -195,7 +197,8 @@ void lcdBacklight(bool onf)
 	digitalWrite(LCD_BACKLIGHT_PIN, HIGH);
 #else
 	digitalWrite(LCD_BACKLIGHT_PIN, onf);
-#endif
+#endif	//#if LCD_ALWAYS_ON
+
 }
 
 void lcdPageUpdate(byte dispStep)
@@ -204,269 +207,276 @@ void lcdPageUpdate(byte dispStep)
 
 	switch (displayState)
 	{
-		case DISP_MAIN:
-			switch (dispStep)
-			{
-				case BTN_BACK:
-					// goto menu page
-					menuPointer = 0;
-					lcdPageChange (lcdPageMenu);
-					displayState = DISP_MENU;
-					break;
-				case BTN_NEXT:
-					// goto ops page, with next step
-					if (trainParameter.masterMode == MASTER_MODE) {
-						trainDisplay = trainParameter;
-						masterChangeStationState(&trainDisplay, STATION_NEXT);
-						lcdPageChange (lcdPageOps);
-						displayState = DISP_OPS;
-					}
-					break;
-				case BTN_PREV:
-					// goto ops page, with prev step
-					if (trainParameter.masterMode == MASTER_MODE) {
-						trainDisplay = trainParameter;
-						masterChangeStationState(&trainDisplay, STATION_PREV);
-						lcdPageChange (lcdPageOps);
-						displayState = DISP_OPS;
-					}
-					break;
-			}
+	case DISP_MAIN:
+		switch (dispStep)
+		{
+		case BTN_BACK:
+			// goto menu page
+			menuPointer = 0;
+			lcdPageChange (lcdPageMenu);
+			displayState = DISP_MENU;
 			break;
-		case DISP_OPS:
-			switch (dispStep)
-			{
-				case BTN_BACK:
-					// goto main page
-					lcdPageChange (lcdPageMain);
-					displayState = DISP_MAIN;
-					break;
-				case BTN_NEXT:
-					// goto ops page, with next step
-					if (trainParameter.masterMode == MASTER_MODE) {
-						masterChangeStationState(&trainDisplay, STATION_NEXT);
-						lcdPageChange (lcdPageOps);
-						displayState = DISP_OPS;
-					}
-					break;
-				case BTN_PREV:
-					// goto ops page, with prev step
-					if (trainParameter.masterMode == MASTER_MODE) {
-						masterChangeStationState(&trainDisplay, STATION_PREV);
-						lcdPageChange (lcdPageOps);
-						displayState = DISP_OPS;
-					}
-					break;
-				case BTN_SELECT:
-					trainParameter = trainDisplay;
-					lcdPageChange(lcdPageMain);
-					displayState = DISP_MAIN;
-					break;
-			}
-			break;
-		case DISP_MENU:
+		case BTN_NEXT:
+			// goto ops page, with next step
 			if (trainParameter.masterMode == MASTER_MODE) {
-				switch (dispStep)
-				{
-					case BTN_NEXT:
-						menuPointer++;
-						if (menuPointer >= menu_setting_length)
-							menuPointer = 0;
-						lcdPageChange (lcdPageMenu);
-						break;
-					case BTN_PREV:
-						if (menuPointer == 0)
-							menuPointer = menu_setting_length - 1;
-						else
-							menuPointer--;
-						lcdPageChange(lcdPageMenu);
-						break;
-					case BTN_BACK:
-						//back to DISP_MAIN state
-						menuPointer = 0;
-						lcdPageChange (lcdPageMain);
-						displayState = DISP_MAIN;
-						break;
-					case BTN_SELECT:
-						displayState = menuPointer + DISP_MENU + 1;
-						trainDisplay = trainParameter;
-						coachPointer = 0;
-
-						lcdPageChangeSubmenu(&trainDisplay);
-
-						break;
-				}
-			}  // trainParameter.masterMode == MASTER_MODE
-			else {
-				switch (dispStep)
-				{
-					case BTN_NEXT:
-						break;
-					case BTN_PREV:
-						break;
-					case BTN_BACK:
-						//back to DISP_MAIN state
-						menuPointer = 0;
-						lcdPageChange (lcdPageMain);
-						displayState = DISP_MAIN;
-						break;
-					case BTN_SELECT:
-						displayState = DISP_MENU_COACH;
-						trainDisplay = trainParameter;
-						coachPointer = 0;
-
-						lcdPageChangeSubmenu(&trainDisplay);
-						break;
-				}
-			}  // else trainParameter.masterMode == MASTER_MODE
-			break;
-		case DISP_MENU_TRAIN:
-			switch (dispStep)
-			{
-				case BTN_PREV:
-					if (allTrainsName.size > 0) {
-						if (trainDisplay.trainInfo.trainPosition > 0)
-							trainDisplay.trainInfo.trainPosition--;
-						else
-							trainDisplay.trainInfo.trainPosition = allTrainsName.size - 1;
-						masterUpdateTrain(&trainDisplay,
-															allTrainsName.trainID[trainDisplay.trainInfo.trainPosition]);
-
-						lcdPageChangeSubmenu(&trainDisplay);
-					}
-					break;
-				case BTN_NEXT:
-					if (allTrainsName.size > 0) {
-						if (trainDisplay.trainInfo.trainPosition < allTrainsName.size - 1)
-							trainDisplay.trainInfo.trainPosition++;
-						else
-							trainDisplay.trainInfo.trainPosition = 0;
-						masterUpdateTrain(&trainDisplay,
-															allTrainsName.trainID[trainDisplay.trainInfo.trainPosition]);
-
-						lcdPageChangeSubmenu(&trainDisplay);
-					}
-					break;
-				case BTN_BACK:
-					//nothing changed
-					displayState = DISP_MENU;
-					lcdPageChange (lcdPageMenu);
-					break;
-				case BTN_SELECT:
-					if (allTrainsName.size > 0) {
-						//if trainDetail changed
-						if ((trainParameter.trainInfo.trainID != trainDisplay.trainInfo.trainID)
-								&& (trainDisplay.trainInfo.trainID != 0)) {
-
-							trainParameter = trainDisplay;
-							trainParameter.stationInfo.pos = 0;
-							masterUpdateTrain(&trainParameter,
-																allTrainsName.trainID[trainParameter.trainInfo.trainPosition]);
-							masterUpdateStation(&trainParameter, 0, STATION_ARRIVED);
-						}
-					}
-
-					lcdPageChange (lcdPageMain);
-					break;
+				trainDisplay = trainParameter;
+				masterChangeStationState(&trainDisplay, STATION_NEXT);
+				lcdPageChange (lcdPageOps);
+				displayState = DISP_OPS;
 			}
 			break;
-		case DISP_MENU_GPS:
+		case BTN_PREV:
+			// goto ops page, with prev step
+			if (trainParameter.masterMode == MASTER_MODE) {
+				trainDisplay = trainParameter;
+				masterChangeStationState(&trainDisplay, STATION_PREV);
+				lcdPageChange (lcdPageOps);
+				displayState = DISP_OPS;
+			}
+			break;
+		}
+		break;
+	case DISP_OPS:
+		switch (dispStep)
+		{
+		case BTN_BACK:
+			// goto main page
+			lcdPageChange (lcdPageMain);
+			displayState = DISP_MAIN;
+			break;
+		case BTN_NEXT:
+			// goto ops page, with next step
+			if (trainParameter.masterMode == MASTER_MODE) {
+				masterChangeStationState(&trainDisplay, STATION_NEXT);
+				lcdPageChange (lcdPageOps);
+				displayState = DISP_OPS;
+			}
+			break;
+		case BTN_PREV:
+			// goto ops page, with prev step
+			if (trainParameter.masterMode == MASTER_MODE) {
+				masterChangeStationState(&trainDisplay, STATION_PREV);
+				lcdPageChange (lcdPageOps);
+				displayState = DISP_OPS;
+			}
+			break;
+		case BTN_SELECT:
+			trainParameter = trainDisplay;
+			lcdPageChange(lcdPageMain);
+			displayState = DISP_MAIN;
+			break;
+		}
+		break;
+	case DISP_MENU:
+		if (trainParameter.masterMode == MASTER_MODE) {
 			switch (dispStep)
 			{
-				case BTN_PREV:
-					trainDisplay.gpsMode = !trainDisplay.gpsMode;
-					lcdPageChangeSubmenu(&trainDisplay);
-					break;
-				case BTN_NEXT:
-					trainDisplay.gpsMode = !trainDisplay.gpsMode;
-					lcdPageChangeSubmenu(&trainDisplay);
-					break;
-				case BTN_BACK:
-					//change back
-					displayState = DISP_MENU;
-					lcdPageChange (lcdPageMenu);
-					break;
-				case BTN_SELECT:
+			case BTN_NEXT:
+				menuPointer++;
+				if (menuPointer >= menu_setting_length)
+					menuPointer = 0;
+				lcdPageChange (lcdPageMenu);
+				break;
+			case BTN_PREV:
+				if (menuPointer == 0)
+					menuPointer = menu_setting_length - 1;
+				else
+					menuPointer--;
+				lcdPageChange(lcdPageMenu);
+				break;
+			case BTN_BACK:
+				//back to DISP_MAIN state
+				menuPointer = 0;
+				lcdPageChange (lcdPageMain);
+				displayState = DISP_MAIN;
+				break;
+			case BTN_SELECT:
+				displayState = menuPointer + DISP_MENU + 1;
+				trainDisplay = trainParameter;
+				coachPointer = 0;
+
+				lcdPageChangeSubmenu(&trainDisplay);
+
+				break;
+			}
+		}  // trainParameter.masterMode == MASTER_MODE
+		else {
+			switch (dispStep)
+			{
+			case BTN_NEXT:
+				break;
+			case BTN_PREV:
+				break;
+			case BTN_BACK:
+				//back to DISP_MAIN state
+				menuPointer = 0;
+				lcdPageChange (lcdPageMain);
+				displayState = DISP_MAIN;
+				break;
+			case BTN_SELECT:
+				displayState = DISP_MENU_COACH;
+				trainDisplay = trainParameter;
+				coachPointer = 0;
+
+				lcdPageChangeSubmenu(&trainDisplay);
+				break;
+			}
+		}  // else trainParameter.masterMode == MASTER_MODE
+		break;
+	case DISP_MENU_TRAIN:
+		switch (dispStep)
+		{
+		case BTN_PREV:
+			if (allTrainsName.size > 0) {
+				if (trainDisplay.trainInfo.trainPosition > 0)
+					trainDisplay.trainInfo.trainPosition--;
+				else
+					trainDisplay.trainInfo.trainPosition = allTrainsName.size - 1;
+				masterUpdateTrain(&trainDisplay,
+						allTrainsName.trainID[trainDisplay.trainInfo.trainPosition]);
+
+				lcdPageChangeSubmenu(&trainDisplay);
+			}
+			break;
+		case BTN_NEXT:
+			if (allTrainsName.size > 0) {
+				if (trainDisplay.trainInfo.trainPosition < allTrainsName.size - 1)
+					trainDisplay.trainInfo.trainPosition++;
+				else
+					trainDisplay.trainInfo.trainPosition = 0;
+				masterUpdateTrain(&trainDisplay,
+						allTrainsName.trainID[trainDisplay.trainInfo.trainPosition]);
+
+				lcdPageChangeSubmenu(&trainDisplay);
+			}
+			break;
+		case BTN_BACK:
+			//nothing changed
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case BTN_SELECT:
+			if (allTrainsName.size > 0) {
+				//if trainDetail changed
+				if ((trainParameter.trainInfo.trainID != trainDisplay.trainInfo.trainID)
+						&& (trainDisplay.trainInfo.trainID != 0)) {
+
 					trainParameter = trainDisplay;
-					lcdPageChange (lcdPageMain);
-					break;
+					trainParameter.stationInfo.pos = 0;
+					masterUpdateTrain(&trainParameter,
+							allTrainsName.trainID[trainParameter.trainInfo.trainPosition]);
+					masterUpdateStation(&trainParameter, 0, STATION_ARRIVED);
+				}
+			}
+
+			lcdPageChange (lcdPageMain);
+			break;
+		}
+		break;
+	case DISP_MENU_GPS:
+		switch (dispStep)
+		{
+		case BTN_PREV:
+			trainDisplay.gpsMode = !trainDisplay.gpsMode;
+			lcdPageChangeSubmenu(&trainDisplay);
+			break;
+		case BTN_NEXT:
+			trainDisplay.gpsMode = !trainDisplay.gpsMode;
+			lcdPageChangeSubmenu(&trainDisplay);
+			break;
+		case BTN_BACK:
+			//change back
+			displayState = DISP_MENU;
+			lcdPageChange (lcdPageMenu);
+			break;
+		case BTN_SELECT:
+			trainParameter = trainDisplay;
+			lcdPageChange (lcdPageMain);
+			break;
+		}
+		break;
+	case DISP_MENU_COACH:
+		switch (dispStep)
+		{
+		case BTN_NEXT:
+			// ' ' -> 'A' - 'Z' -> '0' - '9'
+			c = trainDisplay.coachName.charAt(coachPointer);
+
+			if (c == 'Z')
+				newChar = '0';
+			else if (c == '9')
+				newChar = ' ';
+			else if (((c >= 'A') && (c < 'Z')) || ((c >= '0') && (c < '9')))
+				newChar = c + 1;
+			else
+				newChar = 'A';
+
+			trainDisplay.coachName.setCharAt(coachPointer, newChar);
+#if DEBUG
+			Serial.print(newChar);
+			Serial.print(F(" -> coachName= "));
+			Serial.println(trainDisplay.coachName);
+#endif	//#if DEBUG
+			//update display
+			lcdPageChangeSubmenu(&trainDisplay);
+			break;
+		case BTN_PREV:
+			// ' ' <- 'A' - 'Z' <- '0' - '9'
+			c = trainDisplay.coachName.charAt(coachPointer);
+
+			if (c == 'A')
+				newChar = ' ';
+			else if (c == '0')
+				newChar = 'Z';
+			else if (((c > 'A') && (c <= 'Z')) || ((c > '0') && (c <= '9')))
+				newChar = c - 1;
+			else
+				newChar = '9';
+
+			trainDisplay.coachName.setCharAt(coachPointer, newChar);
+#if DEBUG
+			Serial.print(newChar);
+			Serial.print(F(" -> coachName= "));
+			Serial.println(trainDisplay.coachName);
+#endif	//#if DEBUG
+			//update display
+			lcdPageChangeSubmenu(&trainDisplay);
+			break;
+		case BTN_BACK:
+			if (coachPointer > 0) {
+				coachPointer--;
+				lcdPageChangeSubmenu(&trainDisplay);
+			}
+			else {
+				// cancel
+				displayState = DISP_MENU;
+				lcd.disableCursor();
+				coachPointer = 0;
+				lcdPageChange (lcdPageMenu);
 			}
 			break;
-		case DISP_MENU_COACH:
-			switch (dispStep)
-			{
-				case BTN_NEXT:
-					// ' ' -> 'A' - 'Z' -> '0' - '9'
-					c = trainDisplay.coachName.charAt(coachPointer);
-
-					if (c == 'Z')
-						newChar = '0';
-					else if (c == '9')
-						newChar = ' ';
-					else if (((c >= 'A') && (c < 'Z')) || ((c >= '0') && (c < '9')))
-						newChar = c + 1;
-					else
-						newChar = 'A';
-
-					trainDisplay.coachName.setCharAt(coachPointer, newChar);
-#if DEBUG
-					Serial.print(newChar);
-					Serial.print(F(" -> coachName= "));
-					Serial.println(trainDisplay.coachName);
-#endif	//#if DEBUG
-					//update display
-					lcdPageChangeSubmenu(&trainDisplay);
-					break;
-				case BTN_PREV:
-					// ' ' <- 'A' - 'Z' <- '0' - '9'
-					c = trainDisplay.coachName.charAt(coachPointer);
-
-					if (c == 'A')
-						newChar = ' ';
-					else if (c == '0')
-						newChar = 'Z';
-					else if (((c > 'A') && (c <= 'Z')) || ((c > '0') && (c <= '9')))
-						newChar = c - 1;
-					else
-						newChar = '9';
-
-					trainDisplay.coachName.setCharAt(coachPointer, newChar);
-#if DEBUG
-					Serial.print(newChar);
-					Serial.print(F(" -> coachName= "));
-					Serial.println(trainDisplay.coachName);
-#endif	//#if DEBUG
-					//update display
-					lcdPageChangeSubmenu(&trainDisplay);
-					break;
-				case BTN_BACK:
-					if (coachPointer > 0) {
-						coachPointer--;
-						lcdPageChangeSubmenu(&trainDisplay);
-					}
-					else {
-						// cancel
-						displayState = DISP_MENU;
-						lcd.disableCursor();
-						coachPointer = 0;
-						lcdPageChange (lcdPageMenu);
-					}
-					break;
-				case BTN_SELECT:
-					coachPointer++;
-					if (coachPointer >= 4) {
-						//done
-						coachSetParameter(&trainParameter, trainDisplay.coachName);
-						lcd.disableCursor();
-						lcdPageChange (lcdPageMain);
-					}
-					else
-						lcdPageChangeSubmenu(&trainDisplay);
-					break;
+		case BTN_SELECT:
+			coachPointer++;
+			if (coachPointer >= COACH_NAME_MAX_SIZE) {
+				//done
+				coachSetParameter(&trainParameter, trainDisplay.coachName);
+				lcd.disableCursor();
+				lcdPageChange (lcdPageMain);
 			}
+			// if last digit is space, done
+			else if (trainDisplay.coachName.charAt(coachPointer - 1) == ' ') {
+				//done
+				coachSetParameter(&trainParameter, trainDisplay.coachName);
+				lcd.disableCursor();
+				lcdPageChange (lcdPageMain);
+			}
+			else
+				lcdPageChangeSubmenu(&trainDisplay);
 			break;
-		default:
-			break;
+		}
+		break;
+	default:
+		break;
 	}
 }
 
@@ -491,8 +501,6 @@ void lcdPageMain()
 	menuPointer = 0;
 	coachPointer = 0;
 	displayState = DISP_MAIN;
-	if (trainParameter.masterMode == SLAVE_MODE)
-		lcdBacklight(0);
 
 	//HEADER
 //	title = F("Bangladesh Railway");
@@ -521,14 +529,22 @@ void lcdPageMain()
 	//KONTEN 3
 	if (trainParameter.masterMode == MASTER_MODE) {
 		s[3] = F("MASTER MODE");
+		if (trainParameter.gpsMode == GPS_MODE)
+			s[3] += F(" + GPS MODE");
 	}
 	else {
-		s[3] = F("SLAVE MODE");
+		if (dataMasterCoachId.length() && dataMasterCoachId.charAt(0) != ' ') {
+			s[3] = F("Slave of ");
+			s[3] += dataMasterCoachId;
+		}
 	}
 
-	if (trainParameter.gpsMode == GPS_MODE) {
-		s[3] += ';';
-		s[3] += F("GPS MODE");
+	if (trainParameter.masterMode == SLAVE_MODE && !masterConnected) {
+		title = "Error";
+		s[0] = "Connection Lost";
+		s[1] = "";
+		s[2] = "";
+		s[3] = "";
 	}
 
 	lcd.firstPage();
@@ -656,60 +672,60 @@ void lcdPageSubMenu(Train_Detail_t * td)
 	//MENU CONTENT
 	switch (displayState)
 	{
-		case DISP_MENU_COACH:
-			s[1] = td->coachName;
-			highlightLine = 1;
-			break;
-		case DISP_MENU_TRAIN:
-			trainPointer[1] = td->trainInfo.trainPosition;
+	case DISP_MENU_COACH:
+		s[1] = td->coachName;
+		highlightLine = 1;
+		break;
+	case DISP_MENU_TRAIN:
+		trainPointer[1] = td->trainInfo.trainPosition;
 
-			if (allTrainsName.size > 2) {
-				if (trainPointer[1] == 0) {
-					trainPointer[0] = allTrainsName.size - 1;
+		if (allTrainsName.size > 2) {
+			if (trainPointer[1] == 0) {
+				trainPointer[0] = allTrainsName.size - 1;
+				trainPointer[2] = 1;
+			}
+			else if (trainPointer[1] == allTrainsName.size - 1) {
+				trainPointer[0] = trainPointer[1] - 1;
+				trainPointer[2] = 0;
+			}
+			else {
+				trainPointer[0] = trainPointer[1] - 1;
+				trainPointer[2] = trainPointer[1] + 1;
+			}
+			s[0] = String(allTrainsName.trainID[trainPointer[0]]) + ' '
+					+ allTrainsName.trainName[trainPointer[0]];
+			s[1] = String(allTrainsName.trainID[trainPointer[1]]) + ' '
+					+ allTrainsName.trainName[trainPointer[1]];
+			s[2] = String(allTrainsName.trainID[trainPointer[2]]) + ' '
+					+ allTrainsName.trainName[trainPointer[2]];
+
+		}  // allTrainsName.size > 2
+		else {
+			s[1] = String(allTrainsName.trainID[trainPointer[1]]) + ' '
+					+ allTrainsName.trainName[trainPointer[1]];
+
+			if (allTrainsName.size == 2) {
+				if (trainPointer[1] == 0)
 					trainPointer[2] = 1;
-				}
-				else if (trainPointer[1] == allTrainsName.size - 1) {
-					trainPointer[0] = trainPointer[1] - 1;
+				else
 					trainPointer[2] = 0;
-				}
-				else {
-					trainPointer[0] = trainPointer[1] - 1;
-					trainPointer[2] = trainPointer[1] + 1;
-				}
-				s[0] = String(allTrainsName.trainID[trainPointer[0]]) + ' '
-						+ allTrainsName.trainName[trainPointer[0]];
-				s[1] = String(allTrainsName.trainID[trainPointer[1]]) + ' '
-						+ allTrainsName.trainName[trainPointer[1]];
+
 				s[2] = String(allTrainsName.trainID[trainPointer[2]]) + ' '
 						+ allTrainsName.trainName[trainPointer[2]];
+			}
 
-			}  // allTrainsName.size > 2
-			else {
-				s[1] = String(allTrainsName.trainID[trainPointer[1]]) + ' '
-						+ allTrainsName.trainName[trainPointer[1]];
+		}  // else allTrainsName.size > 2
 
-				if (allTrainsName.size == 2) {
-					if (trainPointer[1] == 0)
-						trainPointer[2] = 1;
-					else
-						trainPointer[2] = 0;
+		break;
+	case DISP_MENU_GPS:
+		s[1] = F("GPS");
+		s[2] = F("MANUAL");
 
-					s[2] = String(allTrainsName.trainID[trainPointer[2]]) + ' '
-							+ allTrainsName.trainName[trainPointer[2]];
-				}
-
-			}  // else allTrainsName.size > 2
-
-			break;
-		case DISP_MENU_GPS:
-			s[1] = F("GPS");
-			s[2] = F("MANUAL");
-
-			if (td->gpsMode == MANUAL_MODE)
-				highlightLine = 2;
-			break;
-		default:
-			break;
+		if (td->gpsMode == MANUAL_MODE)
+			highlightLine = 2;
+		break;
+	default:
+		break;
 	}
 
 	lcd.firstPage();
@@ -1115,9 +1131,10 @@ void masterChangeStationState(Train_Detail_t *td, Station_State_e state)
  */
 void slaveInit(Train_Detail_t *td)
 {
-	lcdBacklight(0);
+	lcdBacklight(1);
 	//clear struct
 	td->masterMode = SLAVE_MODE;
+	dataMasterCoachId = "";
 
 	BUS_RT_RECEIVE();
 
@@ -1187,8 +1204,11 @@ void dataInit()
 
 void dataHandler()
 {
+	//TODO [Jul 19, 2018, miftakur]:
+
 	char c;
 	bool sCompleted = 0;
+	static uint32_t masterFoundTimer = CONN_LOST_TIMEOUT;
 
 	if (BUS_UART.available()) {
 		c = BUS_UART.read();
@@ -1217,60 +1237,74 @@ void dataHandler()
 					Serial.println(F("data bus valid received"));
 #endif	//#if DEBUG
 
+					masterFoundTimer = millis() + CONN_LOST_TIMEOUT;
 				}
 
 				dataBus = "";
 			}  //(sCompleted)
 		}  //(trainParameter.masterMode == SLAVE_MODE)
-	}
+	}	//if (BUS_UART.available())
 
-	dataBusSend();
-	dataDispSend();
+	if (trainParameter.masterMode == MASTER_MODE) {
+		dataBusMasterSend();
+		dataDispSend();
+	}
+	else {
+		if (millis() < masterFoundTimer) {
+			dataDispSend();
+			masterConnected = true;
+			lcdBacklight(1);
+		}
+		else {
+			dataMasterCoachId = "";
+			masterConnected = false;
+			lcdBacklight(0);
+		}
+	}
 }
 
-void dataBusSend()
+void dataBusMasterSend()
 {
 	static bool transmission = 0;
 	static uint16_t transmitPointer = 0;
 
-	if (trainParameter.masterMode == MASTER_MODE) {
-		if (millis() >= busSendTimer) {
-			busSendTimer = millis() + BUS_SEND_TIMEOUT;
-			if (dataBusCreate(&dataBus)) {
-				//Serial.print(dataBus);
-				transmission = 1;
-				transmitPointer = 0;
+	if (millis() >= busSendTimer) {
+		busSendTimer = millis() + BUS_SEND_TIMEOUT;
+		if (dataBusCreate(&dataBus)) {
+			//Serial.print(dataBus);
+			transmission = 1;
+			transmitPointer = 0;
 #if DEBUG
-				Serial.println(bitRead(PORTD, PORTD4));
-				Serial.println(F("Send Data Bus"));
-				Serial.println(dataBus);
+			Serial.println(bitRead(PORTD, PORTD4));
+			Serial.println(F("Send Data Bus"));
+			Serial.println(dataBus);
 #endif	//#if DEBUG
 
-			}
 		}
+	}
 
-		if (transmission) {
-			//wait till tx buffer at least 60B free
-			if (BUS_UART.availableForWrite() > 60) {
-				for ( byte a = 0; a < 60; a++ ) {
-					if (transmitPointer < dataBus.length())
-						BUS_UART.write(dataBus.charAt(transmitPointer++));
-					else {
-						// transmission ended
-						transmission = 0;
-						break;
-					}
+	if (transmission) {
+		//wait till tx buffer at least 60B free
+		if (BUS_UART.availableForWrite() > 60) {
+			for ( byte a = 0; a < 60; a++ ) {
+				if (transmitPointer < dataBus.length())
+					BUS_UART.write(dataBus.charAt(transmitPointer++));
+				else {
+					// transmission ended
+					transmission = 0;
+					break;
 				}
 			}
-		}  // (transmission)
-
-	}  //(trainParameter.masterMode == MASTER_MODE)
+		}
+	}  // (transmission)
 
 }
 
 bool dataBusCreate(String *s)
 {
 	*s = "$";
+	*s += trainParameter.coachName;
+	*s += ',';
 	*s += trainParameter.trainInfo.trainID;
 	*s += ',';
 	*s += trainParameter.trainInfo.trainName;
@@ -1302,6 +1336,17 @@ void dataBusParsing()
 	Serial.println(dataBus);
 	Serial.flush();
 	Serial.println(F("Parsing data:"));
+#endif	//#if DATA_DEBUG
+
+	// master's coach id
+	awal = akhir + 1;
+	akhir = dataBus.indexOf(',', awal);
+	tem = dataBus.substring(awal, akhir);
+	dataMasterCoachId = tem;
+#if DATA_DEBUG
+	Serial.print(tem);
+	Serial.print(F(" = "));
+	Serial.println(dataMasterCoachId);
 #endif	//#if DATA_DEBUG
 
 	// train Number
@@ -1373,8 +1418,6 @@ void dataBusParsing()
 	Serial.println(trainParameter.stationInfo.end);
 #endif	//#if DATA_DEBUG
 
-	//TODO [Jul 13, 2018, miftakur]:
-	//
 	if (displayState == DISP_MAIN)
 		lcdPageChange(lcdPageMain);
 
@@ -1385,46 +1428,14 @@ void dataDispSend()
 	static bool transmission = 0;
 	static uint16_t transmitPointer = 0;
 
-#if TEST_LOCAL
-	static byte idLocal = 0;
-	static bool state = 0;
-	String station = "Stasiun ";
-#endif	//#if TEST_LOCAL
-
 	if (millis() >= dispSendTimer) {
 		dispSendTimer = millis() + DISP_SEND_TIMEOUT;
-#if TEST_LOCAL
-		dataDisp = "$";
-		dataDisp += idLocal++;
-		dataDisp += ',';
-		dataDisp += "kurro Expresso";
-		dataDisp += ',';
-		station += idLocal;
-		dataDisp += station;
-		dataDisp += ',';
-		dataDisp += state;
-		if (state)
-		state = 0;
-		else
-		state = 1;
-		dataDisp += ',';
-		dataDisp += "stasiun awal";
-		dataDisp += ',';
-		dataDisp += "stasiun akhir";
-		dataDisp += '*';
 
-		if (addCRC(&dataDisp)) {
-			transmission = 1;
-			transmitPointer = 0;
-		}
-		Serial.println(dataDisp.length());
-#else
 		if (dataDispCreate(&dataDisp)) {
 			//Serial.print(dataBus);
 			transmission = 1;
 			transmitPointer = 0;
 		}
-#endif	//#if TEST_LOCAL
 
 	}  //(millis() >= sendTimer)
 
@@ -1646,8 +1657,7 @@ void btnUpdate(byte button)
 
 }
 
-byte
-btnRead()
+byte btnRead()
 {
 	byte ret = 0, a;
 
