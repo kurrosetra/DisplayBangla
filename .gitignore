@@ -31,11 +31,15 @@
 *.out
 *.app
 /.metadata/
+*.s##
+*.b##
+*.lck
+sloeber.ino.cpp
 Firmwares/mainTrain/.*
-Firmwares/mainTrain/sloeber.ino.cpp
 Firmwares/mainTrain/Release/
 RemoteSystemsTempFiles/
 Firmwares/storageBank/.*
-Firmwares/storageBank/sloeber.ino.cpp
 Firmwares/storageBank/Release/
 Documents/~$storageBankAddress.xlsx
+Firmwares/test_mainTrain/.*
+Firmwares/test_mainTrain/Release/
