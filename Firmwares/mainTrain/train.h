@@ -10,7 +10,7 @@
 
 #include "Arduino.h"
 
-#define COACH_NAME_MAX_SIZE						4
+#define COACH_NAME_MAX_SIZE						5
 #define COACH_NAME_ADDRESS						0
 
 typedef enum
@@ -37,6 +37,8 @@ typedef struct
 {
 		uint16_t trainID;  								// train's number
 		String trainName;  								// train's name
+		String idBangla;
+		String nameBangla;
 		/* MASTER ONLY */
 		byte trainPosition;						// // position of current train's name in allTrainsName struct
 } Train_Info_t;
@@ -45,9 +47,12 @@ typedef struct
 {
 		Station_State_e state;
 		String name;
+		String nameBangla;
 		uint16_t size;
 		String first;
+		String firstBangla;
 		String end;
+		String endBangla;
 		/* MASTER ONLY */
 		uint16_t pos;
 } Station_Info_t;

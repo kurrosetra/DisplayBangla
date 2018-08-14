@@ -8,6 +8,10 @@
 /**
  * DECLARATION
  */
+
+const String hardwareVersion = "1.0.0";
+const String softwareVersion = "1.1.0";
+
 #define DEBUG						0
 #if DEBUG
 # define LCD_DEBUG					1
@@ -104,6 +108,7 @@ typedef enum
  * *******************************************************************************
  */
 Train_Filename_t allTrainsName;
+Train_Filename_t allTrainsNameBl;
 bool microSDavailable = 0;
 const uint32_t IDLE_TIMEOUT = 30000;
 uint32_t idleTimer = 500;
@@ -127,8 +132,10 @@ void setup()
 	uint32_t sdInitTimer = 0;
 #else
 	Serial.println(F("Display Bangla Controller Firmware"));
-	Serial.println(F("s/w version: 1.0.0"));
-	Serial.println(F("h/w version: 1.0.0"));
+	Serial.print(F("s/w version: "));
+	Serial.println(softwareVersion);
+	Serial.print(F("h/w version: "));
+	Serial.println(hardwareVersion);
 #endif	//#if DEBUG
 
 	pinMode(LCD_SS_PIN, OUTPUT);
@@ -269,6 +276,8 @@ void lcdPageUpdate(byte dispStep)
 			break;
 		case BTN_SELECT:
 			trainParameter = trainDisplay;
+			if (trainParameter.masterMode == MASTER_MODE)
+				masterUpdateTrainBangla();
 			lcdPageChange(lcdPageMain);
 			displayState = DISP_MAIN;
 			break;
@@ -373,6 +382,8 @@ void lcdPageUpdate(byte dispStep)
 					masterUpdateTrain(&trainParameter,
 							allTrainsName.trainID[trainParameter.trainInfo.trainPosition]);
 					masterUpdateStation(&trainParameter, 0, STATION_ARRIVED);
+					if (trainParameter.masterMode == MASTER_MODE)
+						masterUpdateTrainBangla();
 				}
 			}
 
@@ -1170,6 +1181,119 @@ void masterChangeStationState(Train_Detail_t *td, Station_State_e state)
 	}  //state == STATION_PREV
 }
 
+void masterUpdateTrainBangla()
+{
+	char c;
+	String s, sTem, lines;
+	uint16_t lineCount = 0;
+	File file;
+	uint16_t stationSize = 0;
+	bool startTrainInfo = 0;
+	bool startStation = 0, endStation = 0;
+	byte awal;
+
+	s = String(trainParameter.trainInfo.trainID) + ".PID";
+
+	digitalWrite(LCD_SS_PIN, HIGH);
+	file = SD.open(s);
+	if (file) {
+		lines = "";
+		while (file.available()) {
+			c = file.read();
+			lines += c;
+			if (c == '\n') {
+				if (!startTrainInfo) {
+					if (lines.indexOf("**PIDS DATA**") >= 0) {
+						startTrainInfo = 1;
+						lineCount = 0;
+					}
+				}
+				else {
+					//train.ID
+					if (lineCount == 1) {
+						lines.trim();
+						awal = lines.indexOf(';') + 1;
+						sTem = lines.substring(awal);
+						trainParameter.trainInfo.idBangla = sTem;
+					}
+					//train.Name
+					else if (lineCount == 2) {
+						lines.trim();
+						awal = lines.indexOf(';') + 1;
+						sTem = lines.substring(awal);
+						trainParameter.trainInfo.nameBangla = sTem;
+					}
+				}
+
+				if (!startStation) {
+					if ((lines.indexOf(",AWAL,") > 0) || (lines.indexOf(",START,") > 0)) {
+						startStation = 1;
+						stationSize = 0;
+#if DEBUG
+						Serial.println(F("All Station:"));
+#endif	//#if DEBUG
+
+					}
+				}  //(!startStation)
+				else {
+					if ((lines.indexOf(",AKHIR,") > 0) || (lines.indexOf(",END,") > 0)) {
+						endStation = 1;
+#if DEBUG
+						Serial.println(lines);
+#endif	//#if DEBUG
+					}
+				}
+				//else (!startStation)
+
+				if (startStation) {
+					// find station name
+					lines.trim();
+					awal = lines.indexOf(';') + 1;
+					sTem = lines.substring(awal);
+#if DEBUG
+					Serial.print(stationSize);
+					Serial.print(' ');
+					Serial.println(sTem);
+#endif	//#if DEBUG
+
+					if (stationSize == 0)
+						trainParameter.stationInfo.firstBangla = sTem;
+
+					if (endStation)
+						trainParameter.stationInfo.endBangla = sTem;
+
+					// found the station
+					if (stationSize == trainParameter.stationInfo.pos)
+						trainParameter.stationInfo.nameBangla = sTem;
+
+					//increment station size
+					stationSize++;
+				}  //(startStation)
+
+				lineCount++;
+				lines = "";
+				if (endStation)
+					break;
+			}
+		}
+	}
+
+	if (lines.length() > 0 && !endStation) {
+		if ((lines.indexOf(",AKHIR,") > 0) || (lines.indexOf(",END,") > 0)) {
+			lines.trim();
+			awal = lines.indexOf(';') + 1;
+			sTem = lines.substring(awal);
+
+			trainParameter.stationInfo.endBangla = sTem;
+			if (stationSize == trainParameter.stationInfo.pos)
+				trainParameter.stationInfo.nameBangla = sTem;
+		}
+	}
+
+	file.close();
+	digitalWrite(SD_SS_PIN, HIGH);
+}
+
 /**
  * *******************************************************************************
  * SLAVE functions
@@ -1178,7 +1302,7 @@ void masterChangeStationState(Train_Detail_t *td, Station_State_e state)
 void slaveInit(Train_Detail_t *td)
 {
 	lcdBacklight(1);
-	//clear struct
+//clear struct
 	td->masterMode = SLAVE_MODE;
 	dataMasterCoachId = "";
 
@@ -1214,7 +1338,7 @@ void coachSetParameter(Train_Detail_t * td, String newName)
 	char c;
 	byte a;
 
-	// if valid then save to EEPROM
+// if valid then save to EEPROM
 	newName.trim();
 	if (newName != td->coachName) {
 		for ( a = 0; a < COACH_NAME_MAX_SIZE; a++ ) {
@@ -1250,8 +1374,6 @@ void dataInit()
 
 void dataHandler()
 {
-	//TODO [Jul 19, 2018, miftakur]:
-
 	char c;
 	bool sCompleted = 0;
 	static uint32_t masterFoundTimer = CONN_LOST_TIMEOUT;
@@ -1348,24 +1470,51 @@ void dataBusMasterSend()
 
 bool dataBusCreate(String *s)
 {
-	String _coachName=trainParameter.coachName;
+	static byte counter = 0;
+	String _coachName = trainParameter.coachName;
 	_coachName.trim();
 
-	*s = "$";
-	*s += _coachName;
-	*s += ',';
-	*s += trainParameter.trainInfo.trainID;
-	*s += ',';
-	*s += trainParameter.trainInfo.trainName;
-	*s += ',';
-	*s += trainParameter.stationInfo.name;
-	*s += ',';
-	*s += trainParameter.stationInfo.state;
-	*s += ',';
-	*s += trainParameter.stationInfo.first;
-	*s += ',';
-	*s += trainParameter.stationInfo.end;
-	*s += '*';
+	if (counter % 2 == 0) {
+		*s = "$";
+		*s += counter;
+		*s += ',';
+		*s += _coachName;
+		*s += ',';
+		*s += trainParameter.trainInfo.trainID;
+		*s += ',';
+		*s += trainParameter.trainInfo.trainName;
+		*s += ',';
+		*s += trainParameter.stationInfo.name;
+		*s += ',';
+		*s += trainParameter.stationInfo.state;
+		*s += ',';
+		*s += trainParameter.stationInfo.first;
+		*s += ',';
+		*s += trainParameter.stationInfo.end;
+		*s += '*';
+	}
+	else {
+		*s = "$";
+		*s += counter;
+		*s += ',';
+		*s += _coachName;
+		*s += ',';
+		*s += trainParameter.trainInfo.idBangla;
+		*s += ',';
+		*s += trainParameter.trainInfo.nameBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.nameBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.state;
+		*s += ',';
+		*s += trainParameter.stationInfo.firstBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.endBangla;
+		*s += '*';
+
+	}
+
+	counter++;
 
 	if (addCRC(s))
 		return true;
@@ -1377,6 +1526,7 @@ void dataBusParsing()
 {
 	uint16_t awal, akhir;
 	String tem;
+	byte counter = 0;
 
 	akhir = dataBus.indexOf('$');
 
@@ -1386,6 +1536,12 @@ void dataBusParsing()
 	Serial.flush();
 	Serial.println(F("Parsing data:"));
 #endif	//#if DATA_DEBUG
+
+	//counter
+	awal = akhir + 1;
+	akhir = dataBus.indexOf(',', awal);
+	tem = dataBus.substring(awal, akhir);
+	counter = tem.toInt();
 
 	// master's coach id
 	awal = akhir + 1;
@@ -1402,7 +1558,10 @@ void dataBusParsing()
 	awal = akhir + 1;
 	akhir = dataBus.indexOf(',', awal);
 	tem = dataBus.substring(awal, akhir);
-	trainParameter.trainInfo.trainID = tem.toInt();
+	if (counter % 2 == 0)
+		trainParameter.trainInfo.trainID = tem.toInt();
+	else
+		trainParameter.trainInfo.idBangla = tem;
 #if DATA_DEBUG
 	Serial.print(tem);
 	Serial.print(F(" = "));
@@ -1413,7 +1572,10 @@ void dataBusParsing()
 	awal = akhir + 1;
 	akhir = dataBus.indexOf(',', awal);
 	tem = dataBus.substring(awal, akhir);
-	trainParameter.trainInfo.trainName = tem;
+	if (counter % 2 == 0)
+		trainParameter.trainInfo.trainName = tem;
+	else
+		trainParameter.trainInfo.nameBangla = tem;
 #if DATA_DEBUG
 	Serial.print(tem);
 	Serial.print(F(" = "));
@@ -1424,7 +1586,10 @@ void dataBusParsing()
 	awal = akhir + 1;
 	akhir = dataBus.indexOf(',', awal);
 	tem = dataBus.substring(awal, akhir);
-	trainParameter.stationInfo.name = tem;
+	if (counter % 2 == 0)
+		trainParameter.stationInfo.name = tem;
+	else
+		trainParameter.stationInfo.nameBangla = tem;
 #if DATA_DEBUG
 	Serial.print(tem);
 	Serial.print(F(" = "));
@@ -1449,7 +1614,10 @@ void dataBusParsing()
 	awal = akhir + 1;
 	akhir = dataBus.indexOf(',', awal);
 	tem = dataBus.substring(awal, akhir);
-	trainParameter.stationInfo.first = tem;
+	if (counter % 2 == 0)
+		trainParameter.stationInfo.first = tem;
+	else
+		trainParameter.stationInfo.firstBangla = tem;
 #if DATA_DEBUG
 	Serial.print(tem);
 	Serial.print(F(" = "));
@@ -1460,7 +1628,10 @@ void dataBusParsing()
 	awal = akhir + 1;
 	akhir = dataBus.indexOf(',', awal);
 	tem = dataBus.substring(awal, akhir);
-	trainParameter.stationInfo.end = tem;
+	if (counter % 2 == 0)
+		trainParameter.stationInfo.end = tem;
+	else
+		trainParameter.stationInfo.endBangla = tem;
 #if DATA_DEBUG
 	Serial.print(tem);
 	Serial.print(F(" = "));
@@ -1509,30 +1680,53 @@ bool dataDispCreate(String *s)
 	static byte counter = 0;
 	String tem;
 
-	*s = "$";
-	*s += counter;
-	*s += ',';
-	*s += trainParameter.trainInfo.trainID;
-	*s += ',';
-	*s += trainParameter.trainInfo.trainName;
-	*s += ',';
-	*s += trainParameter.stationInfo.name;
-	*s += ',';
-	*s += trainParameter.stationInfo.state;
-	*s += ',';
-	*s += trainParameter.stationInfo.first;
-	*s += ',';
-	*s += trainParameter.stationInfo.end;
-	*s += ',';
-	tem = trainParameter.coachName;
-	tem.trim();
-	*s += tem;
-	*s += '*';
+	if (counter % 2 == 0) {
 
-	if (counter >= 254)
-		counter = 0;
-	else
-		counter += 2;
+		*s = "$";
+		*s += counter;
+		*s += ',';
+		*s += trainParameter.trainInfo.trainID;
+		*s += ',';
+		*s += trainParameter.trainInfo.trainName;
+		*s += ',';
+		*s += trainParameter.stationInfo.name;
+		*s += ',';
+		*s += trainParameter.stationInfo.state;
+		*s += ',';
+		*s += trainParameter.stationInfo.first;
+		*s += ',';
+		*s += trainParameter.stationInfo.end;
+		*s += ',';
+		tem = trainParameter.coachName;
+		tem.trim();
+		*s += tem;
+		*s += '*';
+	}
+	else {
+		*s = "$";
+		*s += counter;
+		*s += ',';
+		*s += trainParameter.trainInfo.idBangla;
+		*s += ',';
+		*s += trainParameter.trainInfo.nameBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.nameBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.state;
+		*s += ',';
+		*s += trainParameter.stationInfo.firstBangla;
+		*s += ',';
+		*s += trainParameter.stationInfo.endBangla;
+		*s += ',';
+		tem = trainParameter.coachName;
+		tem.trim();
+		*s += tem;
+		*s += '*';
+
+	}
+
+//	counter += 2;
+	counter++;
 
 	if (addCRC(s))
 		return true;
