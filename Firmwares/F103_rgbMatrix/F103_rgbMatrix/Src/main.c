@@ -76,14 +76,22 @@ UART_HandleTypeDef huart1;
 #define CMD_CHAR_SEPARATOR		','
 #define CMD_CHAR_TERMINATOR		'*'
 
+const char bangladesh_eng[16] = "Bangladesh";
+const char railways_eng[16] = "Railways";
+const char bangladesh_bangla[16] = { 34, 50, 55, 38, 50, 59, 29, 40 };
+const char railways_bangla[16] = { 59, 35, 38, 10, 59, 63 };
+
 char uartBuffer[UART_BUFSIZE];
 volatile ITStatus uart1RxReady = RESET;
 volatile uint8_t uart1RxPointer = 0;
+volatile uint8_t swapBufferStart = 0;
 volatile uint32_t activeFrameRowAdress = 0;
 volatile uint32_t matrix_row = 0;
 volatile uint32_t matrix_color = 0;
 volatile FlagStatus buttonPress = RESET;
+#if DEBUG
 volatile uint32_t fps = 0;
+#endif	//if DEBUG
 
 uint32_t millis = 0;
 const uint32_t DISCONNECTED_TIMEOUT = 10000;
@@ -152,7 +160,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 /* TODO */
-static void layoutOperation(uint8_t *lang);
+static void layoutConnected(uint8_t *lang);
 static void layoutDisconnected(uint8_t * lang);
 static void layoutCoachName(uint8_t len);
 
@@ -163,6 +171,7 @@ void startDmaTransfering();
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void dmaTransferCompleted(DMA_HandleTypeDef *hdma);
 void usart1_callback_IT();
+static void delayIwdg(uint32_t _delayTime);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -205,11 +214,11 @@ int main(void)
 	MX_IWDG_Init();
 	/* USER CODE BEGIN 2 */
 	/* TODO */
-
+	HAL_IWDG_Refresh(&hiwdg);
 	/* init data */
-	rgb_frame_clear();
+	rgb_init();
 
-	activeFrameRowAdress = (uint32_t) &frameBuffer;
+	activeFrameRowAdress = rgb_get_buffer(0);
 
 	/* enable tim1 dma */
 	__HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
@@ -248,13 +257,12 @@ int main(void)
 		{
 			if (millis >= disconnectTimer)
 			{
-				displayRefreshTimer = 0;
-
 				if (millis >= disconnectRefreshTimer)
 				{
 					disconnectRefreshTimer = millis + DISCONNECTED_REFRESH_TIMEOUT;
 					memset(infoEng.coachName, 0, COMMAND_SHORT_BUFSIZE);
 					memset(infoBangla.coachName, 0, COMMAND_SHORT_BUFSIZE);
+					displayRefreshTimer = 0;
 
 					layoutDisconnected(&displayLang);
 				}
@@ -265,7 +273,7 @@ int main(void)
 				{
 					displayRefreshTimer = millis + DISPLAY_REFRESH_TIMEOUT;
 
-					layoutOperation(&displayLang);
+					layoutConnected(&displayLang);
 				}
 
 			}
@@ -274,8 +282,7 @@ int main(void)
 		if (buttonPress == SET)
 		{
 			rgb_frame_clear();
-			matrix_color = 0;
-			matrix_row = 0;
+			swapBufferStart = 1;
 			clearScreenForUpload = 1;
 			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
 		}
@@ -598,12 +605,11 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 /* TODO Non-hardware functions*/
 
-static void layoutOperation(uint8_t *lang)
+static void layoutConnected(uint8_t *lang)
 {
 	uint8_t u8a, u8b;
 	uint8_t displayLang = *lang;
 
-	rgb_frame_clear();
 	if (displayLang)
 	{
 		/* english */
@@ -627,8 +633,10 @@ static void layoutOperation(uint8_t *lang)
 		}
 		else
 		{
+			rgb_frame_clear();
 			layoutCoachName(u8a);
 
+			swapBufferStart = 1;
 		}
 
 		*lang = 0;
@@ -656,8 +664,10 @@ static void layoutOperation(uint8_t *lang)
 		}
 		else
 		{
+			rgb_frame_clear();
 			layoutCoachName(u8a);
 
+			swapBufferStart = 1;
 		}
 
 		*lang = 1;
@@ -669,10 +679,6 @@ static void layoutDisconnected(uint8_t * lang)
 {
 	uint8_t displayLang = *lang;
 	int16_t xPos = 0;
-	const char bangladesh_eng[16] = "Bangladesh";
-	const char railways_eng[16] = "Railways";
-	const char bangladesh_bangla[16] = { 34, 50, 55, 38, 50, 59, 29, 40 };
-	const char railways_bangla[16] = { 59, 35, 38, 10, 59, 63 };
 
 	rgb_frame_clear();
 	if (displayLang)
@@ -694,6 +700,7 @@ static void layoutDisconnected(uint8_t * lang)
 
 		*lang = 1;
 	}
+	swapBufferStart = 1;
 }
 
 static void layoutCoachName(uint8_t len)
@@ -702,7 +709,7 @@ static void layoutCoachName(uint8_t len)
 	if (len == 1)
 		rgb_write(0, 2, infoDisplay.coachName[0], 0b1, 4);
 	else if (len == 2)
-		rgb_print(0, 3, infoDisplay.coachName, 2, 0b1, 3);
+		rgb_print(0, 4, infoDisplay.coachName, 2, 0b1, 3);
 	else if (len == 3)
 	{
 		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
@@ -922,9 +929,18 @@ void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
 		if (++matrix_row >= MATRIX_SCANROW)
 		{
 			matrix_row = 0;
+			if (swapBufferStart)
+			{
+				rgb_swap_buffer();
+				swapBufferStart = 0;
+			}
+
+#if DEBUG
 			fps++;
+#endif	//if DEBUG
+
 		}
-		activeFrameRowAdress = (uint32_t) &frameBuffer[matrix_row][0];
+		activeFrameRowAdress = rgb_get_buffer(matrix_row);
 
 		/* set stb low */
 		CONTROL_GPIO->BSRR = CONTROL_BSSR_STB_CLEAR;
@@ -972,7 +988,7 @@ void usart1_callback_IT()
 	/* Other USART1 interrupts handler can go here ...             */
 }
 
-void delayIwdg(uint32_t _delayTime)
+static void delayIwdg(uint32_t _delayTime)
 {
 	const uint32_t iwdg_reset_time = 100;
 

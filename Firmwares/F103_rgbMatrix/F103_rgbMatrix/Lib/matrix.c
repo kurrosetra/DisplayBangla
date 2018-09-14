@@ -6,16 +6,53 @@
  */
 
 #include "matrix.h"
+#include <string.h>
 #include "font5x7.h"
 #include "fontBangla.h"
 
+volatile uint8_t activeBuffer = 0;
+uint8_t frameBuffer[2][MATRIX_SCANROW][FRAME_SIZE];
+
+void rgb_init()
+{
+	for ( int bufferIndex = 0; bufferIndex < 2; bufferIndex++ )
+	{
+		for ( int row = 0; row < MATRIX_SCANROW; row++ )
+		{
+			memset(frameBuffer[bufferIndex][row], (uint8_t) clk_en_Pin, FRAME_SIZE);
+			for ( int i = FRAME_START_OFFSET + FRAME_BUFSIZE; i < FRAME_SIZE; i++ )
+				frameBuffer[bufferIndex][row][i] = 0;
+		}
+	}
+	activeBuffer = 0;
+}
+
+void rgb_swap_buffer()
+{
+	if (activeBuffer)
+		activeBuffer = 0;
+	else
+		activeBuffer = 1;
+}
+
+uint32_t rgb_get_buffer(uint8_t row)
+{
+	return (uint32_t) &frameBuffer[activeBuffer][row][0];
+}
+
 void rgb_frame_clear()
 {
+	uint8_t bufferIndex = 0;
+	if (activeBuffer)
+		bufferIndex = 0;
+	else
+		bufferIndex = 1;
+
 	for ( int row = 0; row < MATRIX_SCANROW; row++ )
 	{
-		memset(frameBuffer[row], (uint8_t) clk_en_Pin, FRAME_SIZE);
+		memset(frameBuffer[bufferIndex][row], (uint8_t) clk_en_Pin, FRAME_SIZE);
 		for ( int i = FRAME_START_OFFSET + FRAME_BUFSIZE; i < FRAME_SIZE; i++ )
-			frameBuffer[row][i] = 0;
+			frameBuffer[bufferIndex][row][i] = 0;
 	}
 }
 
@@ -24,9 +61,15 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 	uint8_t busNumber = 0;
 	uint16_t row, lines;
 	uint8_t rgbVal = 0;
+	uint8_t bufferIndex = 0;
 #if MATRIX_SCANROW==MATRIX_SCANROWS_8
 	uint16_t y_segment = 0;
 #endif	//if MATRIX_SCANROW==MATRIX_SCANROWS_8
+
+	if (activeBuffer)
+		bufferIndex = 0;
+	else
+		bufferIndex = 1;
 
 #if FRAME_ORIENTATION==FRAME_ORIENTATION_3
 	x = MATRIX_MAX_WIDTH - 1 - x;
@@ -78,7 +121,7 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 				rgbVal = 0b1;
 			else
 				rgbVal = 0b1000;
-			frameBuffer[row][lines] |= rgbVal;
+			frameBuffer[bufferIndex][row][lines] |= rgbVal;
 		}
 		if (color & 0b10)
 		{
@@ -86,7 +129,7 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 				rgbVal = 0b10;
 			else
 				rgbVal = 0b10000;
-			frameBuffer[row][lines] |= rgbVal;
+			frameBuffer[bufferIndex][row][lines] |= rgbVal;
 
 		}
 		if (color & 0b100)
@@ -95,7 +138,7 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 				rgbVal = 0b100;
 			else
 				rgbVal = 0b100000;
-			frameBuffer[row][lines] |= rgbVal;
+			frameBuffer[bufferIndex][row][lines] |= rgbVal;
 		}
 
 	}
