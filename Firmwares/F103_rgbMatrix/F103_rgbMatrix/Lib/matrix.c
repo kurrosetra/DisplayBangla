@@ -101,15 +101,14 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 	}
 }
 
-void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t size, int16_t xMin,
-		int16_t xMax, int16_t yMin, int16_t yMax)
+void rgb_write_constrain(int16_t x, int16_t y, char c, uint8_t color, uint8_t fontSize,
+		int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
 {
 	uint8_t getFont[5];
 	uint16_t fontPos = (uint16_t) c;
 	uint16_t xPos, yPos;
 	uint16_t xBit, yBit;
 	uint16_t xSize, ySize;
-	FlagStatus smoothing = RESET;
 
 	for ( xPos = 0; xPos < FONT_X_SIZE; xPos++ )
 		getFont[xPos] = *(font5x7 + (fontPos * FONT_X_SIZE) + xPos);
@@ -120,12 +119,12 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 		{
 			if (bitRead(getFont[xPos], yPos))
 			{
-				for ( xSize = 0; xSize < size; xSize++ )
+				for ( xSize = 0; xSize < fontSize; xSize++ )
 				{
-					for ( ySize = 0; ySize < size; ySize++ )
+					for ( ySize = 0; ySize < fontSize; ySize++ )
 					{
-						yBit = y + (yPos * size) + ySize;
-						xBit = x + (xPos * size) + xSize;
+						yBit = y + (yPos * fontSize) + ySize;
+						xBit = x + (xPos * fontSize) + xSize;
 						if ((xBit >= xMin && xBit <= xMax) && (yBit >= yMin && yBit <= yMax))
 						{
 							rgb_draw_pixel(xBit, yBit, color);
@@ -138,7 +137,7 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 
 #if USE_SMOOTH_FONT
 	/* smoothing font when size>1 */
-	if (size > 1)
+	if (fontSize > 1)
 	{
 		for ( xPos = 0; xPos < FONT_X_SIZE; xPos++ )
 		{
@@ -155,14 +154,14 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 							if (bitRead(getFont[xPos - 1],
 									yPos - 1) && !bitRead(getFont[xPos], yPos - 1))
 							{
-								for ( int i = 0; i < size; i++ )
+								for ( int i = 0; i < fontSize; i++ )
 								{
-									for ( xSize = 0; xSize < size; xSize++ )
+									for ( xSize = 0; xSize < fontSize; xSize++ )
 									{
-										for ( ySize = 0; ySize < size; ySize++ )
+										for ( ySize = 0; ySize < fontSize; ySize++ )
 										{
-											yBit = y + (yPos * size) + ySize - i;
-											xBit = x + (xPos * size) + xSize - i;
+											yBit = y + (yPos * fontSize) + ySize - i;
+											xBit = x + (xPos * fontSize) + xSize - i;
 											if ((xBit >= xMin && xBit <= xMax)
 													&& (yBit >= yMin && yBit <= yMax))
 											{
@@ -177,14 +176,14 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 							if (bitRead(getFont[xPos - 1],
 									yPos + 1) && !bitRead(getFont[xPos], yPos + 1))
 							{
-								for ( int i = 0; i < size; i++ )
+								for ( int i = 0; i < fontSize; i++ )
 								{
-									for ( xSize = 0; xSize < size; xSize++ )
+									for ( xSize = 0; xSize < fontSize; xSize++ )
 									{
-										for ( ySize = 0; ySize < size; ySize++ )
+										for ( ySize = 0; ySize < fontSize; ySize++ )
 										{
-											yBit = y + (yPos * size) + ySize + i;
-											xBit = x + (xPos * size) + xSize - i;
+											yBit = y + (yPos * fontSize) + ySize + i;
+											xBit = x + (xPos * fontSize) + xSize - i;
 											if ((xBit >= xMin && xBit <= xMax)
 													&& (yBit >= yMin && yBit <= yMax))
 											{
@@ -201,14 +200,14 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 							//right-down
 							if (bitRead(getFont[xPos+1],yPos-1) && !bitRead(getFont[xPos], yPos - 1))
 							{
-								for ( int i = 0; i < size; i++ )
+								for ( int i = 0; i < fontSize; i++ )
 								{
-									for ( xSize = 0; xSize < size; xSize++ )
+									for ( xSize = 0; xSize < fontSize; xSize++ )
 									{
-										for ( ySize = 0; ySize < size; ySize++ )
+										for ( ySize = 0; ySize < fontSize; ySize++ )
 										{
-											yBit = y + (yPos * size) + ySize - i;
-											xBit = x + (xPos * size) + xSize + i;
+											yBit = y + (yPos * fontSize) + ySize - i;
+											xBit = x + (xPos * fontSize) + xSize + i;
 											if ((xBit >= xMin && xBit <= xMax)
 													&& (yBit >= yMin && yBit <= yMax))
 											{
@@ -222,14 +221,14 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 							if (bitRead(getFont[xPos + 1],
 									yPos + 1) && !bitRead(getFont[xPos], yPos + 1))
 							{
-								for ( int i = 0; i < size; i++ )
+								for ( int i = 0; i < fontSize; i++ )
 								{
-									for ( xSize = 0; xSize < size; xSize++ )
+									for ( xSize = 0; xSize < fontSize; xSize++ )
 									{
-										for ( ySize = 0; ySize < size; ySize++ )
+										for ( ySize = 0; ySize < fontSize; ySize++ )
 										{
-											yBit = y + (yPos * size) + ySize + i;
-											xBit = x + (xPos * size) + xSize + i;
+											yBit = y + (yPos * fontSize) + ySize + i;
+											xBit = x + (xPos * fontSize) + xSize + i;
 											if ((xBit >= xMin && xBit <= xMax)
 													&& (yBit >= yMin && yBit <= yMax))
 											{
@@ -250,25 +249,34 @@ void rgb_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t s
 
 }
 
-void rgb_write(int16_t x, int16_t y, char c, uint8_t color, uint8_t size)
+void rgb_write(int16_t x, int16_t y, char c, uint8_t color, uint8_t fontSize)
 {
-	rgb_write_constraint(x, y, c, color, size, 0, MATRIX_MAX_WIDTH - 1, 0, MATRIX_MAX_HEIGHT - 1);
+	rgb_write_constrain(x, y, c, color, fontSize, 0, MATRIX_MAX_WIDTH - 1, 0,
+	MATRIX_MAX_HEIGHT - 1);
 }
 
-void rgb_print(int16_t x, int16_t y, char* s, uint8_t color, uint8_t size)
+void rgb_print(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color, uint8_t fontSize)
 {
-	for ( uint16_t i = 0; i < strlen(s); i++ )
-		rgb_write(x + (i * (FONT_X_SIZE * size + size)), y, *(s + i), color, size);
+	for ( uint16_t i = 0; i < size; i++ )
+		rgb_write(x + (i * (FONT_X_SIZE * fontSize + fontSize)), y, *(s + i), color, fontSize);
+}
+void rgb_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
+		uint8_t fontSize, int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
+{
+	for ( uint16_t i = 0; i < size; i++ )
+		rgb_write_constrain(x + (i * (FONT_X_SIZE * fontSize + fontSize)), y, *(s + i), color,
+				fontSize, xMin, xMax, yMin, yMax);
+
 }
 
-void rgb_bangla_write_constraint(int16_t x, int16_t y, char c, uint8_t color, uint8_t size,
+void rgb_bangla_write_constrain(int16_t x, int16_t y, char c, uint8_t color, uint8_t fontSize,
 		int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
 {
 	uint16_t line = 0;
 	uint16_t fontPos = (uint16_t) c;
 	int16_t xPos, yPos;
 
-	for (int i = 0; i < FONT_BANGLA_X_SIZE; i++ )
+	for ( int i = 0; i < FONT_BANGLA_X_SIZE; i++ )
 	{
 		line = *(fontBangla + (fontPos * FONT_BANGLA_X_SIZE) + i);
 
@@ -287,12 +295,24 @@ void rgb_bangla_write_constraint(int16_t x, int16_t y, char c, uint8_t color, ui
 	}
 }
 
-void rgb_bangla_write(int16_t x, int16_t y, char c, uint8_t color, uint8_t size)
+void rgb_bangla_write(int16_t x, int16_t y, char c, uint8_t color, uint8_t fontSize)
 {
-	rgb_bangla_write_constraint(x, y, c, color, size, 0, MATRIX_MAX_WIDTH, 0, MATRIX_MAX_HEIGHT);
+	rgb_bangla_write_constrain(x, y, c, color, fontSize, 0, MATRIX_MAX_WIDTH, 0,
+	MATRIX_MAX_HEIGHT);
 }
 
-void rgb_bangla_print(int16_t x, int16_t y, char* s, uint8_t color, uint8_t size)
+void rgb_bangla_print(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color, uint8_t fontSize)
 {
+	for ( uint16_t i = 0; i < size; i++ )
+		rgb_bangla_write(x + (i * (FONT_BANGLA_X_SIZE * fontSize)), y, *(s + i), color, fontSize);
+
+}
+
+void rgb_bangla_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
+		uint8_t fontSize, int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
+{
+	for ( uint16_t i = 0; i < size; i++ )
+		rgb_bangla_write_constrain(x + (i * (FONT_BANGLA_X_SIZE * fontSize)), y, *(s + i), color,
+				fontSize, xMin, xMax, yMin, yMax);
 
 }

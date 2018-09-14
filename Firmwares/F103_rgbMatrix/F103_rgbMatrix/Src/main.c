@@ -42,11 +42,14 @@
 /* USER CODE BEGIN Includes */
 #include "stm32f1xx_it.h"
 #include <string.h>
+#include <stdlib.h>
 #include "config.h"
 #include "matrix.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
+IWDG_HandleTypeDef hiwdg;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 DMA_HandleTypeDef hdma_tim1_ch1;
@@ -56,12 +59,22 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 /* TODO */
+#define DEBUG					1
+#if DEBUG
+#define RGB_PANEL_DEBUG			0
+#endif	//if DEBUG
+
 #define HW_VERSION				"v1.0.0"
 #define SW_VERSION				"v1.3.0"
 #define RUNNING_SPEED			25
 
 #define OE_MIN					((OE_MAX_DUTY * 5) / 1000)
 #define UART_BUFSIZE			1024
+
+#define CMD_CHAR_HEADER			'$'
+#define CMD_CHAR_ENDLINE		'\n'
+#define CMD_CHAR_SEPARATOR		','
+#define CMD_CHAR_TERMINATOR		'*'
 
 char uartBuffer[UART_BUFSIZE];
 volatile ITStatus uart1RxReady = RESET;
@@ -72,11 +85,17 @@ volatile uint32_t matrix_color = 0;
 volatile FlagStatus buttonPress = RESET;
 volatile uint32_t fps = 0;
 
+uint32_t millis = 0;
+const uint32_t DISCONNECTED_TIMEOUT = 10000;
+uint32_t disconnectTimer = 0;
+const uint32_t DISCONNECTED_REFRESH_TIMEOUT = 5000;
+uint32_t disconnectRefreshTimer = 0;
+const uint32_t DISPLAY_REFRESH_TIMEOUT = 5000;
+uint32_t displayRefreshTimer = 0;
+
 const uint32_t OE_MAX_VAL = OE_MAX_DUTY - OE_MIN;
 const uint32_t OE_MIN_VAL = (OE_MAX_DUTY * 85) / 100;
 uint32_t oeCcrVal = OE_MAX_DUTY;
-
-char runningString[UART_BUFSIZE];
 
 #define COMMAND_SHORT_BUFSIZE			16
 #define COMMAND_LONG_BUFSIZE			128
@@ -101,6 +120,9 @@ typedef struct
 	char first[COMMAND_LONG_BUFSIZE];
 	char end[COMMAND_LONG_BUFSIZE];
 } Station_Info_t;
+
+char textRecv[COMMAND_SHORT_BUFSIZE];
+
 /**
  * @brief  Display Command Handle Structure definition
  */
@@ -112,7 +134,7 @@ typedef struct
 	FlagStatus updateAvailable;
 } CMD_HandleTypeDef;
 
-CMD_HandleTypeDef infoEng, infoBangla;
+CMD_HandleTypeDef infoEng, infoBangla, infoDisplay;
 
 /* USER CODE END PV */
 
@@ -123,11 +145,20 @@ static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_IWDG_Init(void);
+
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 /* TODO */
+static void layoutOperation(uint8_t *lang);
+static void layoutDisconnected(uint8_t * lang);
+static void layoutCoachName(uint8_t len);
+
+static uint8_t char_to_byte(char c);
+static void parseCommand();
+
 void startDmaTransfering();
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void dmaTransferCompleted(DMA_HandleTypeDef *hdma);
@@ -171,6 +202,7 @@ int main(void)
 	MX_TIM1_Init();
 	MX_TIM2_Init();
 	MX_USART1_UART_Init();
+	MX_IWDG_Init();
 	/* USER CODE BEGIN 2 */
 	/* TODO */
 
@@ -196,14 +228,9 @@ int main(void)
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
+	uint8_t clearScreenForUpload = 0;
+	uint8_t displayLang = 0;
 
-	uint32_t millis = 0;
-	uint32_t runningText = 0;
-	uint16_t xPos = 0;
-	uint8_t clearScreen = 0;
-	char textToRun[UART_BUFSIZE];
-	sprintf(textToRun, "kurro");
-	uint16_t uartLength = 0;
 	while (1)
 	{
 
@@ -213,50 +240,35 @@ int main(void)
 		/* TODO */
 
 		millis = HAL_GetTick();
+		HAL_IWDG_Refresh(&hiwdg);
 
-		if (uart1RxReady == SET)
+		parseCommand();
+
+		if (!clearScreenForUpload)
 		{
-			uartLength = strlen(uartBuffer);
-			memcpy(textToRun, uartBuffer, uartLength);
-			textToRun[uartLength] = 0;
+			if (millis >= disconnectTimer)
+			{
+				displayRefreshTimer = 0;
 
-			uart1RxReady = RESET;
-			HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
-			xPos = MATRIX_MAX_WIDTH;
-		}
+				if (millis >= disconnectRefreshTimer)
+				{
+					disconnectRefreshTimer = millis + DISCONNECTED_REFRESH_TIMEOUT;
+					memset(infoEng.coachName, 0, COMMAND_SHORT_BUFSIZE);
+					memset(infoBangla.coachName, 0, COMMAND_SHORT_BUFSIZE);
 
-		if (millis >= runningText && clearScreen == 0)
-		{
-			runningText = millis + RUNNING_SPEED;
+					layoutDisconnected(&displayLang);
+				}
+			}
+			else
+			{
+				if (millis >= displayRefreshTimer)
+				{
+					displayRefreshTimer = millis + DISPLAY_REFRESH_TIMEOUT;
 
-			rgb_frame_clear();
-//			uint8_t fontSize = 1;
-//			if (++xPos >= MATRIX_MAX_WIDTH - (6 * strlen(textToRun) * fontSize))
-//				xPos = 0;
-//			rgb_print(xPos, 0, textToRun, 0b111, fontSize);
-//			rgb_print(MATRIX_MAX_WIDTH - xPos - (6 * strlen(textToRun) * fontSize), 16, textToRun,
-//					0b111, fontSize);
+					layoutOperation(&displayLang);
+				}
 
-			uint8_t fontSize = 1;
-//			if (++xPos >= MATRIX_MAX_WIDTH - (10 * 8 * fontSize))
-//				xPos = 0;
-			/* 34:50:55:38:50:59:29:40 */
-			rgb_bangla_write(xPos, 0, 34, 0b1, fontSize);
-			rgb_bangla_write(xPos + 10, 0, 50, 0b1, fontSize);
-			rgb_bangla_write(xPos + 20, 0, 55, 0b1, fontSize);
-			rgb_bangla_write(xPos + 30, 0, 38, 0b1, fontSize);
-			rgb_bangla_write(xPos + 40, 0, 50, 0b1, fontSize);
-			rgb_bangla_write(xPos + 50, 0, 59, 0b1, fontSize);
-			rgb_bangla_write(xPos + 60, 0, 29, 0b1, fontSize);
-			rgb_bangla_write(xPos + 70, 0, 40, 0b1, fontSize);
-			/* 59:35:38:10:59:63 */
-			rgb_bangla_write(xPos, 16, 59, 0b1, fontSize);
-			rgb_bangla_write(xPos + 10, 16, 35, 0b1, fontSize);
-			rgb_bangla_write(xPos + 20, 16, 38, 0b1, fontSize);
-			rgb_bangla_write(xPos + 30, 16, 10, 0b1, fontSize);
-			rgb_bangla_write(xPos + 40, 16, 59, 0b1, fontSize);
-			rgb_bangla_write(xPos + 50, 16, 63, 0b1, fontSize);
-
+			}
 		}
 
 		if (buttonPress == SET)
@@ -264,10 +276,8 @@ int main(void)
 			rgb_frame_clear();
 			matrix_color = 0;
 			matrix_row = 0;
-			clearScreen = 1;
+			clearScreenForUpload = 1;
 			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
-
-			buttonPress = RESET;
 		}
 	}
 	/* USER CODE END 3 */
@@ -286,10 +296,11 @@ void SystemClock_Config(void)
 
 	/**Initializes the CPU, AHB and APB busses clocks
 	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_HSE;
 	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
 	RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
 	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+	RCC_OscInitStruct.LSIState = RCC_LSI_ON;
 	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
 	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
 	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
@@ -322,6 +333,20 @@ void SystemClock_Config(void)
 
 	/* SysTick_IRQn interrupt configuration */
 	HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+/* IWDG init function */
+static void MX_IWDG_Init(void)
+{
+
+	hiwdg.Instance = IWDG;
+	hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+	hiwdg.Init.Reload = IWDG_1S;
+	if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+	{
+		_Error_Handler(__FILE__, __LINE__);
+	}
+
 }
 
 /* TIM1 init function */
@@ -446,7 +471,7 @@ static void MX_USART1_UART_Init(void)
 {
 
 	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 460800;
+	huart1.Init.BaudRate = 38400;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
 	huart1.Init.StopBits = UART_STOPBITS_1;
 	huart1.Init.Parity = UART_PARITY_NONE;
@@ -508,9 +533,7 @@ static void MX_GPIO_Init(void)
 			GPIO_PIN_RESET);
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(GPIOB,
-			GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | stb_Pin | GPIO_PIN_5 | GPIO_PIN_6
-					| GPIO_PIN_7 | GPIO_PIN_8, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, da_Pin | db_Pin | dc_Pin | dd_Pin | stb_Pin, GPIO_PIN_RESET);
 
 	/*Configure GPIO pin : LED_BUILTIN_Pin */
 	GPIO_InitStruct.Pin = LED_BUILTIN_Pin;
@@ -550,20 +573,19 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	HAL_GPIO_Init(clk_en_GPIO_Port, &GPIO_InitStruct);
 
-	/*Configure GPIO pins : PB0 PB1 PB2 PB3
-	 stb_Pin PB5 PB6 PB7
-	 PB8 */
-	GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | stb_Pin | GPIO_PIN_5
-			| GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
+	/*Configure GPIO pins : da_Pin db_Pin dc_Pin dd_Pin
+	 stb_Pin */
+	GPIO_InitStruct.Pin = da_Pin | db_Pin | dc_Pin | dd_Pin | stb_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 	/*Configure GPIO pins : PB10 PB11 PB12 PB13
-	 PB14 PB15 PB9 */
+	 PB14 PB15 PB5 PB6
+	 PB7 PB8 PB9 */
 	GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14
-			| GPIO_PIN_15 | GPIO_PIN_9;
+			| GPIO_PIN_15 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -574,6 +596,310 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* TODO Non-hardware functions*/
+
+static void layoutOperation(uint8_t *lang)
+{
+	uint8_t u8a, u8b;
+	uint8_t displayLang = *lang;
+
+	rgb_frame_clear();
+	if (displayLang)
+	{
+		/* english */
+		infoDisplay = infoEng;
+
+		u8a = strlen(infoDisplay.coachName);
+		/* no data at english info */
+		if (!u8a)
+		{
+			u8b = strlen(infoBangla.coachName);
+			/* no data at bangla info either */
+			if (!u8b)
+			{
+				//change to disconnect display
+				disconnectTimer = 0;
+			}
+			else
+			{
+				displayRefreshTimer = 0;
+			}
+		}
+		else
+		{
+			layoutCoachName(u8a);
+
+		}
+
+		*lang = 0;
+	}
+	else
+	{
+		/* bangla */
+		infoDisplay = infoBangla;
+
+		u8a = strlen(infoDisplay.coachName);
+		/* no data at bangla info */
+		if (!u8a)
+		{
+			u8b = strlen(infoEng.coachName);
+			/* no data at bangla info either */
+			if (!u8b)
+			{
+				//change to disconnect display
+				disconnectTimer = 0;
+			}
+			else
+			{
+				displayRefreshTimer = 0;
+			}
+		}
+		else
+		{
+			layoutCoachName(u8a);
+
+		}
+
+		*lang = 1;
+	}
+
+}
+
+static void layoutDisconnected(uint8_t * lang)
+{
+	uint8_t displayLang = *lang;
+	int16_t xPos = 0;
+	const char bangladesh_eng[16] = "Bangladesh";
+	const char railways_eng[16] = "Railways";
+	const char bangladesh_bangla[16] = { 34, 50, 55, 38, 50, 59, 29, 40 };
+	const char railways_bangla[16] = { 59, 35, 38, 10, 59, 63 };
+
+	rgb_frame_clear();
+	if (displayLang)
+	{
+		/* english */
+		xPos = 36;
+		rgb_print(xPos, 0, (char *) bangladesh_eng, strlen(bangladesh_eng), 0b1, 2);
+		rgb_print(xPos + 12, 16, (char *) railways_eng, strlen(railways_eng), 0b111, 2);
+
+		*lang = 0;
+	}
+	else
+	{
+		/* bangla */
+		xPos = 56;
+		rgb_bangla_print(xPos, 0, (char *) bangladesh_bangla, strlen(bangladesh_bangla), 0b1, 1);
+		rgb_bangla_print(xPos + 10, 16, (char *) railways_bangla, strlen(railways_bangla), 0b111,
+				1);
+
+		*lang = 1;
+	}
+}
+
+static void layoutCoachName(uint8_t len)
+{
+
+	if (len == 1)
+		rgb_write(0, 2, infoDisplay.coachName[0], 0b1, 4);
+	else if (len == 2)
+		rgb_print(0, 3, infoDisplay.coachName, 2, 0b1, 3);
+	else if (len == 3)
+	{
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(6, 16, infoDisplay.coachName[2], 0b1, 2);
+	}
+	else if (len == 4)
+	{
+		//xtr1
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(12, 16, infoDisplay.coachName[3], 0b1, 2);
+	}
+	else if (len == 5)
+	{
+		//xtr01
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(6, 16, infoDisplay.coachName[3], 0b1, 2);
+		rgb_write(18, 16, infoDisplay.coachName[4], 0b1, 2);
+	}
+	else if (len == 6)
+	{
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(0, 16, infoDisplay.coachName[3], 0b1, 2);
+		rgb_write(12, 16, infoDisplay.coachName[4], 0b1, 2);
+		rgb_write(24, 16, infoDisplay.coachName[5], 0b1, 2);
+	}
+}
+
+static uint8_t char_to_byte(char c)
+{
+	uint8_t ret = 0;
+
+	if (c >= '0' && c <= '9')
+		ret = c - '0';
+	else if (c >= 'a' && c <= 'f')
+		ret = c - 'a' + 10;
+	else if (c >= 'A' && c <= 'F')
+		ret = c - 'A' + 10;
+
+	return ret;
+}
+
+static void parseCommand()
+{
+	char cmdIn[UART_BUFSIZE];
+	char buf[COMMAND_SHORT_BUFSIZE];
+	uint8_t crcVal = 0, crcCalc = 0;
+	uint16_t cmdIn_length = 0;
+	uint16_t cmdCounter = 0;
+	char * s;
+	uint16_t awal = 0;
+	CMD_HandleTypeDef cmdTem;
+	int i;
+
+	if (uart1RxReady == SET)
+	{
+		memcpy(cmdIn, uartBuffer, UART_BUFSIZE);
+		uart1RxReady = RESET;
+
+		/*
+		 * start parsing data
+		 *
+		 * $[counter],[trainID],[trainName],[stationName],[stationState],
+		 * [station first],[station end],[coachName]*[CRC]\n
+		 *
+		 */
+		cmdIn_length = strlen(cmdIn);
+		for ( i = 1; i < cmdIn_length; i++ )
+		{
+			if (cmdIn[i] == CMD_CHAR_TERMINATOR)
+			{
+				awal = i;
+				break;
+			}
+			else
+				crcCalc ^= (uint8_t) cmdIn[i];
+		}
+		crcVal = char_to_byte(cmdIn[awal + 1]) << 4;
+		crcVal |= char_to_byte(cmdIn[awal + 2]);
+
+		/* valid CRC */
+		if (crcCalc == crcVal)
+		{
+			disconnectTimer = millis + DISCONNECTED_TIMEOUT;
+			disconnectRefreshTimer = 0;
+
+			i = 0;
+			/* counter */
+			awal = i + 1;
+			memset(buf, 0, COMMAND_SHORT_BUFSIZE);
+			s = buf;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+			cmdCounter = atoi(buf);
+
+			/* trainID */
+			awal = i + 1;
+			memset(cmdTem.trainInfo.id, 0, COMMAND_SHORT_BUFSIZE);
+			s = cmdTem.trainInfo.id;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+
+			/* trainName */
+			awal = i + 1;
+			memset(cmdTem.trainInfo.name, 0, COMMAND_LONG_BUFSIZE);
+			s = cmdTem.trainInfo.name;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+
+			/* stationName */
+			awal = i + 1;
+			memset(cmdTem.stationInfo.name, 0, COMMAND_LONG_BUFSIZE);
+			s = cmdTem.stationInfo.name;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+			/* station state */
+			awal = i + 1;
+
+			if (cmdIn[awal] == '0')
+				cmdTem.stationInfo.state = STATION_ARRIVED;
+			else if (cmdIn[awal] == '1')
+				cmdTem.stationInfo.state = STATION_TOWARD;
+
+			i = awal + 1;
+
+			/* station first */
+			awal = i + 1;
+			memset(cmdTem.stationInfo.first, 0, COMMAND_LONG_BUFSIZE);
+			s = cmdTem.stationInfo.first;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+			/* station end */
+			awal = i + 1;
+			memset(cmdTem.stationInfo.end, 0, COMMAND_LONG_BUFSIZE);
+			s = cmdTem.stationInfo.end;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+			/* coachName */
+			awal = i + 1;
+			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
+			s = cmdTem.coachName;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_TERMINATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+
+			cmdTem.updateAvailable = SET;
+			if (cmdCounter % 2 == 1)
+				infoBangla = cmdTem;
+			else
+				infoEng = cmdTem;
+
+			HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
+		}
+	}
+
+}
+
 /* TODO */
 
 void startDmaTransfering()
@@ -631,12 +957,12 @@ void usart1_callback_IT()
 	if ((isrflags & USART_SR_RXNE) != RESET)
 	{
 		c = (char) (huart1.Instance->DR & (uint8_t) 0x00FF);
-		if (c == '$')
+		if (c == CMD_CHAR_HEADER)
 		{
 			memset(uartBuffer, 0, UART_BUFSIZE);
 			uart1RxPointer = 0;
 		}
-		else if (c == '*')
+		else if (c == CMD_CHAR_ENDLINE)
 			uart1RxReady = SET;
 
 		uartBuffer[uart1RxPointer++] = c;
@@ -644,6 +970,26 @@ void usart1_callback_IT()
 
 	/* ------------------------------------------------------------ */
 	/* Other USART1 interrupts handler can go here ...             */
+}
+
+void delayIwdg(uint32_t _delayTime)
+{
+	const uint32_t iwdg_reset_time = 100;
+
+	HAL_IWDG_Refresh(&hiwdg);
+	if (_delayTime <= iwdg_reset_time)
+		HAL_Delay(_delayTime);
+	else
+	{
+		while (_delayTime > iwdg_reset_time)
+		{
+			HAL_Delay(iwdg_reset_time);
+			HAL_IWDG_Refresh(&hiwdg);
+			_delayTime -= iwdg_reset_time;
+		}
+		HAL_Delay(_delayTime);
+	}
+	HAL_IWDG_Refresh(&hiwdg);
 }
 
 /* TODO */
