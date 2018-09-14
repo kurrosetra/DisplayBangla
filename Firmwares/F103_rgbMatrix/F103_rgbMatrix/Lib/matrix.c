@@ -302,14 +302,24 @@ void rgb_print(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color, uint
 {
 	for ( uint16_t i = 0; i < size; i++ )
 		rgb_write(x + (i * (FONT_X_SIZE * fontSize + fontSize)), y, *(s + i), color, fontSize);
+
 }
-void rgb_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
+
+int16_t rgb_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
 		uint8_t fontSize, int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
 {
-	for ( uint16_t i = 0; i < size; i++ )
-		rgb_write_constrain(x + (i * (FONT_X_SIZE * fontSize + fontSize)), y, *(s + i), color,
-				fontSize, xMin, xMax, yMin, yMax);
+	int16_t ret = 0;
+	if (size)
+	{
 
+		for ( uint16_t i = 0; i < size; i++ )
+			rgb_write_constrain(x + (i * (FONT_X_SIZE * fontSize + fontSize)), y, *(s + i), color,
+					fontSize, xMin, xMax, yMin, yMax);
+
+		ret = size * (FONT_X_SIZE * fontSize + fontSize);
+	}
+
+	return ret;
 }
 
 void rgb_bangla_write_constrain(int16_t x, int16_t y, char c, uint8_t color, uint8_t fontSize,
@@ -351,11 +361,18 @@ void rgb_bangla_print(int16_t x, int16_t y, char* s, uint16_t size, uint8_t colo
 
 }
 
-void rgb_bangla_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
+int16_t rgb_bangla_print_constrain(int16_t x, int16_t y, char* s, uint16_t size, uint8_t color,
 		uint8_t fontSize, int16_t xMin, int16_t xMax, int16_t yMin, int16_t yMax)
 {
-	for ( uint16_t i = 0; i < size; i++ )
-		rgb_bangla_write_constrain(x + (i * (FONT_BANGLA_X_SIZE * fontSize)), y, *(s + i), color,
-				fontSize, xMin, xMax, yMin, yMax);
+	int16_t ret = 0;
+	if (size)
+	{
+		for ( uint16_t i = 0; i < size; i++ )
+			rgb_bangla_write_constrain(x + (i * (FONT_BANGLA_X_SIZE * fontSize)), y, *(s + i),
+					color, fontSize, xMin, xMax, yMin, yMax);
 
+		ret = size * (FONT_BANGLA_X_SIZE * fontSize);
+	}
+
+	return ret;
 }

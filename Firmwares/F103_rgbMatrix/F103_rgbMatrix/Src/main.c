@@ -76,10 +76,14 @@ UART_HandleTypeDef huart1;
 #define CMD_CHAR_SEPARATOR		','
 #define CMD_CHAR_TERMINATOR		'*'
 
-const char bangladesh_eng[16] = "Bangladesh";
-const char railways_eng[16] = "Railways";
-const char bangladesh_bangla[16] = { 34, 50, 55, 38, 50, 59, 29, 40 };
-const char railways_bangla[16] = { 59, 35, 38, 10, 59, 63 };
+#define COMMAND_SHORT_BUFSIZE			16
+#define COMMAND_LONG_BUFSIZE			128
+
+const char bangladesh_eng[COMMAND_SHORT_BUFSIZE] = "Bangladesh";
+const char railways_eng[COMMAND_SHORT_BUFSIZE] = "Railways";
+const char bangladesh_bangla[COMMAND_SHORT_BUFSIZE] = { 34, 50, 55, 38, 50, 59, 29, 40 };
+const char railways_bangla[COMMAND_SHORT_BUFSIZE] = { 59, 35, 38, 10, 59, 63 };
+const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 6, 59, 28, 59, 56, 6 };
 
 char uartBuffer[UART_BUFSIZE];
 volatile ITStatus uart1RxReady = RESET;
@@ -95,18 +99,14 @@ volatile uint32_t fps = 0;
 
 uint32_t millis = 0;
 const uint32_t DISCONNECTED_TIMEOUT = 10000;
-uint32_t disconnectTimer = 0;
 const uint32_t DISCONNECTED_REFRESH_TIMEOUT = 5000;
-uint32_t disconnectRefreshTimer = 0;
 const uint32_t DISPLAY_REFRESH_TIMEOUT = 5000;
-uint32_t displayRefreshTimer = 0;
+int16_t xCoachLineEnd = 0;
+int16_t xTrainIdLineEnd = 0;
 
 const uint32_t OE_MAX_VAL = OE_MAX_DUTY - OE_MIN;
 const uint32_t OE_MIN_VAL = (OE_MAX_DUTY * 85) / 100;
 uint32_t oeCcrVal = OE_MAX_DUTY;
-
-#define COMMAND_SHORT_BUFSIZE			16
-#define COMMAND_LONG_BUFSIZE			128
 
 typedef enum
 {
@@ -136,6 +136,7 @@ char textRecv[COMMAND_SHORT_BUFSIZE];
  */
 typedef struct
 {
+	uint8_t language;
 	Train_Info_t trainInfo;
 	Station_Info_t stationInfo;
 	char coachName[COMMAND_SHORT_BUFSIZE];
@@ -160,12 +161,17 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 /* TODO */
-static void layoutConnected(uint8_t *lang);
+static uint8_t layoutConnected(uint8_t *lang);
+static void layoutConnectedValid(uint8_t coach_len);
 static void layoutDisconnected(uint8_t * lang);
 static void layoutCoachName(uint8_t len);
+static void layoutTrainID();
+static void layoutTrainName();
+static void layoutTrainRoute();
 
 static uint8_t char_to_byte(char c);
-static void parseCommand();
+static uint8_t parseCommand();
+static void parseBangla(CMD_HandleTypeDef *cmd);
 
 void startDmaTransfering();
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
@@ -217,7 +223,6 @@ int main(void)
 	HAL_IWDG_Refresh(&hiwdg);
 	/* init data */
 	rgb_init();
-
 	activeFrameRowAdress = rgb_get_buffer(0);
 
 	/* enable tim1 dma */
@@ -232,6 +237,7 @@ int main(void)
 	__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
 
 	HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_RESET);
+	delayIwdg(100);
 
 	/* USER CODE END 2 */
 
@@ -239,6 +245,10 @@ int main(void)
 	/* USER CODE BEGIN WHILE */
 	uint8_t clearScreenForUpload = 0;
 	uint8_t displayLang = 0;
+	uint32_t disconnectTimer = 0;
+	uint32_t disconnectRefreshTimer = 0;
+	uint32_t displayRefreshTimer = 0;
+	uint8_t layoutState = 0;
 
 	while (1)
 	{
@@ -251,7 +261,11 @@ int main(void)
 		millis = HAL_GetTick();
 		HAL_IWDG_Refresh(&hiwdg);
 
-		parseCommand();
+		if (parseCommand())
+		{
+			disconnectTimer = millis + DISCONNECTED_TIMEOUT;
+			disconnectRefreshTimer = 0;
+		}
 
 		if (!clearScreenForUpload)
 		{
@@ -273,7 +287,12 @@ int main(void)
 				{
 					displayRefreshTimer = millis + DISPLAY_REFRESH_TIMEOUT;
 
-					layoutConnected(&displayLang);
+					layoutState = layoutConnected(&displayLang);
+					if (layoutState == 1)
+						displayRefreshTimer = 0;
+					else if (layoutState == 0)
+						//change to disconnect display
+						disconnectTimer = 0;
 				}
 
 			}
@@ -285,6 +304,17 @@ int main(void)
 			swapBufferStart = 1;
 			clearScreenForUpload = 1;
 			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
+//			if (clearScreenForUpload == 0)
+//			{
+//				clearScreenForUpload = 1;
+//				HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
+//			}
+//			else
+//			{
+//				clearScreenForUpload = 0;
+//				HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_RESET);
+//			}
+			buttonPress = RESET;
 		}
 	}
 	/* USER CODE END 3 */
@@ -605,74 +635,229 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 /* TODO Non-hardware functions*/
 
-static void layoutConnected(uint8_t *lang)
+static void layoutCoachName(uint8_t len)
 {
-	uint8_t u8a, u8b;
+
+	if (len == 1)
+	{
+		rgb_write(0, 2, infoDisplay.coachName[0], 0b1, 4);
+		xCoachLineEnd = 22;
+	}
+	else if (len == 2)
+	{
+		rgb_print(0, 4, infoDisplay.coachName, 2, 0b1, 3);
+		xCoachLineEnd = 20;
+	}
+	else if (len == 3)
+	{
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(6, 16, infoDisplay.coachName[2], 0b1, 2);
+		xCoachLineEnd = 26;
+	}
+	else if (len == 4)
+	{
+		//xtr1
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(12, 16, infoDisplay.coachName[3], 0b1, 2);
+		xCoachLineEnd = 38;
+	}
+	else if (len == 5)
+	{
+		//xtr01
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(6, 16, infoDisplay.coachName[3], 0b1, 2);
+		rgb_write(18, 16, infoDisplay.coachName[4], 0b1, 2);
+		xCoachLineEnd = 38;
+	}
+	else if (len == 6)
+	{
+		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
+		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(0, 16, infoDisplay.coachName[3], 0b1, 2);
+		rgb_write(12, 16, infoDisplay.coachName[4], 0b1, 2);
+		rgb_write(24, 16, infoDisplay.coachName[5], 0b1, 2);
+		xCoachLineEnd = 38;
+	}
+}
+
+static void layoutTrainID()
+{
+	uint8_t id_len = strlen(infoDisplay.trainInfo.id);
+
+	if (id_len)
+	{
+		if (infoDisplay.language == 0)
+			xTrainIdLineEnd = rgb_print_constrain(xCoachLineEnd, 0, infoDisplay.trainInfo.id,
+					id_len, 0b10, 2, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
+
+		else
+			xTrainIdLineEnd = rgb_bangla_print_constrain(xCoachLineEnd, 0, infoDisplay.trainInfo.id,
+					id_len, 0b10, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
+	}
+	else
+		xTrainIdLineEnd = xCoachLineEnd;
+}
+
+static void layoutTrainName()
+{
+	uint16_t train_len = strlen(infoDisplay.trainInfo.name);
+	int16_t xPos = xTrainIdLineEnd;
+
+	if (train_len)
+	{
+		if (infoDisplay.language == 0)
+			rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 2,
+					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+		else
+			rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 1,
+					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+	}
+}
+
+/* TODO outdoor & indoor handler*/
+#if DISPLAY_OUTDOOR
+static void layoutTrainRoute()
+{
+	char destination[2 * COMMAND_LONG_BUFSIZE];
+	int16_t destination_len = 0;
+	int16_t xPos = xCoachLineEnd;
+	int16_t x = 0, x1;
+
+	if (infoDisplay.language == 0)
+	{
+		sprintf(destination, "%s to %s", infoDisplay.stationInfo.first,
+				infoDisplay.stationInfo.end);
+
+		destination_len = strlen(destination);
+		if (destination_len > 4)
+			rgb_print_constrain(xPos, 16, destination, destination_len, 0b1, 2, xCoachLineEnd,
+			MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+	}
+	else
+	{
+		x = xPos;
+		x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.first,
+				strlen(infoDisplay.stationInfo.first), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+				MATRIX_MAX_HEIGHT);
+
+		x = x + x1;
+		if (x < MATRIX_MAX_WIDTH)
+		{
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla), 0b10,
+					1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+
+			x = x + x1;
+			if (x < MATRIX_MAX_WIDTH)
+				x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
+						strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+						MATRIX_MAX_HEIGHT);
+		}
+
+	}
+
+}
+#endif	//if DISPLAY_OUTDOOR
+
+
+#if DISPLAY_INDOOR
+static void layoutTrainRoute()
+{
+	char destination[2 * COMMAND_LONG_BUFSIZE];
+	int16_t destination_len = 0;
+	int16_t xPos = xCoachLineEnd;
+	int16_t x = 0, x1;
+
+	if (infoDisplay.language == 0)
+	{
+		sprintf(destination, "%s to %s", infoDisplay.stationInfo.first,
+				infoDisplay.stationInfo.end);
+
+		destination_len = strlen(destination);
+		if (destination_len > 4)
+			rgb_print_constrain(xPos, 16, destination, destination_len, 0b1, 2, xCoachLineEnd,
+			MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+	}
+	else
+	{
+		x = xPos;
+		x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.first,
+				strlen(infoDisplay.stationInfo.first), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+				MATRIX_MAX_HEIGHT);
+
+		x = x + x1;
+		if (x < MATRIX_MAX_WIDTH)
+		{
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla), 0b10,
+					1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+
+			x = x + x1;
+			if (x < MATRIX_MAX_WIDTH)
+				x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
+						strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+						MATRIX_MAX_HEIGHT);
+		}
+
+	}
+
+}
+#endif	//if DISPLAY_INDOOR
+
+
+static void layoutConnectedValid(uint8_t coach_len)
+{
+	rgb_frame_clear();
+
+	layoutCoachName(coach_len);
+	layoutTrainID();
+	layoutTrainName();
+	layoutTrainRoute();
+
+	swapBufferStart = 1;
+}
+
+static uint8_t layoutConnected(uint8_t *lang)
+{
+	uint8_t ret = 0;
+	uint8_t u8a = 0, u8b = 0;
 	uint8_t displayLang = *lang;
 
 	if (displayLang)
 	{
-		/* english */
-		infoDisplay = infoEng;
-
-		u8a = strlen(infoDisplay.coachName);
-		/* no data at english info */
-		if (!u8a)
-		{
-			u8b = strlen(infoBangla.coachName);
-			/* no data at bangla info either */
-			if (!u8b)
-			{
-				//change to disconnect display
-				disconnectTimer = 0;
-			}
-			else
-			{
-				displayRefreshTimer = 0;
-			}
-		}
-		else
-		{
-			rgb_frame_clear();
-			layoutCoachName(u8a);
-
-			swapBufferStart = 1;
-		}
-
+		infoDisplay = infoBangla;
 		*lang = 0;
 	}
 	else
 	{
-		/* bangla */
-		infoDisplay = infoBangla;
-
-		u8a = strlen(infoDisplay.coachName);
-		/* no data at bangla info */
-		if (!u8a)
-		{
-			u8b = strlen(infoEng.coachName);
-			/* no data at bangla info either */
-			if (!u8b)
-			{
-				//change to disconnect display
-				disconnectTimer = 0;
-			}
-			else
-			{
-				displayRefreshTimer = 0;
-			}
-		}
-		else
-		{
-			rgb_frame_clear();
-			layoutCoachName(u8a);
-
-			swapBufferStart = 1;
-		}
-
+		infoDisplay = infoEng;
 		*lang = 1;
 	}
 
+	u8a = strlen(infoDisplay.coachName);
+	if (!u8a)
+	{
+		if (displayLang == 0)
+			u8b = strlen(infoBangla.coachName);
+		else
+			u8b = strlen(infoEng.coachName);
+
+		if (!u8b)
+			return 0;
+		else
+			return 1;
+	}
+	else
+	{
+		layoutConnectedValid(u8a);
+		return 2;
+	}
+
+	return ret;
 }
 
 static void layoutDisconnected(uint8_t * lang)
@@ -686,7 +871,7 @@ static void layoutDisconnected(uint8_t * lang)
 		/* english */
 		xPos = 36;
 		rgb_print(xPos, 0, (char *) bangladesh_eng, strlen(bangladesh_eng), 0b1, 2);
-		rgb_print(xPos + 12, 16, (char *) railways_eng, strlen(railways_eng), 0b111, 2);
+		rgb_print(xPos + 12, 16, (char *) railways_eng, strlen(railways_eng), 0b1, 2);
 
 		*lang = 0;
 	}
@@ -695,53 +880,11 @@ static void layoutDisconnected(uint8_t * lang)
 		/* bangla */
 		xPos = 56;
 		rgb_bangla_print(xPos, 0, (char *) bangladesh_bangla, strlen(bangladesh_bangla), 0b1, 1);
-		rgb_bangla_print(xPos + 10, 16, (char *) railways_bangla, strlen(railways_bangla), 0b111,
-				1);
+		rgb_bangla_print(xPos + 10, 16, (char *) railways_bangla, strlen(railways_bangla), 0b1, 1);
 
 		*lang = 1;
 	}
 	swapBufferStart = 1;
-}
-
-static void layoutCoachName(uint8_t len)
-{
-
-	if (len == 1)
-		rgb_write(0, 2, infoDisplay.coachName[0], 0b1, 4);
-	else if (len == 2)
-		rgb_print(0, 4, infoDisplay.coachName, 2, 0b1, 3);
-	else if (len == 3)
-	{
-		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
-		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
-		rgb_write(6, 16, infoDisplay.coachName[2], 0b1, 2);
-	}
-	else if (len == 4)
-	{
-		//xtr1
-		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
-		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
-		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
-		rgb_write(12, 16, infoDisplay.coachName[3], 0b1, 2);
-	}
-	else if (len == 5)
-	{
-		//xtr01
-		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
-		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
-		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
-		rgb_write(6, 16, infoDisplay.coachName[3], 0b1, 2);
-		rgb_write(18, 16, infoDisplay.coachName[4], 0b1, 2);
-	}
-	else if (len == 6)
-	{
-		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
-		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
-		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
-		rgb_write(0, 16, infoDisplay.coachName[3], 0b1, 2);
-		rgb_write(12, 16, infoDisplay.coachName[4], 0b1, 2);
-		rgb_write(24, 16, infoDisplay.coachName[5], 0b1, 2);
-	}
 }
 
 static uint8_t char_to_byte(char c)
@@ -758,8 +901,9 @@ static uint8_t char_to_byte(char c)
 	return ret;
 }
 
-static void parseCommand()
+static uint8_t parseCommand()
 {
+	uint8_t ret = 0;
 	char cmdIn[UART_BUFSIZE];
 	char buf[COMMAND_SHORT_BUFSIZE];
 	uint8_t crcVal = 0, crcCalc = 0;
@@ -799,8 +943,7 @@ static void parseCommand()
 		/* valid CRC */
 		if (crcCalc == crcVal)
 		{
-			disconnectTimer = millis + DISCONNECTED_TIMEOUT;
-			disconnectRefreshTimer = 0;
+			ret = 1;
 
 			i = 0;
 			/* counter */
@@ -815,6 +958,7 @@ static void parseCommand()
 					*s++ = cmdIn[i];
 			}
 			cmdCounter = atoi(buf);
+			cmdTem.language = cmdCounter % 2;
 
 			/* trainID */
 			awal = i + 1;
@@ -897,7 +1041,10 @@ static void parseCommand()
 
 			cmdTem.updateAvailable = SET;
 			if (cmdCounter % 2 == 1)
+			{
+				parseBangla(&cmdTem);
 				infoBangla = cmdTem;
+			}
 			else
 				infoEng = cmdTem;
 
@@ -905,6 +1052,63 @@ static void parseCommand()
 		}
 	}
 
+	return ret;
+}
+
+static void parseStringBangla(char *str, uint16_t size)
+{
+	char lbuf[COMMAND_LONG_BUFSIZE];
+	uint16_t len = 0;
+	uint16_t indexChar = 0;
+	uint16_t indexStr = 0;
+	char buf[COMMAND_SHORT_BUFSIZE];
+	char *tmp;
+	uint8_t u8a, u8b;
+
+	tmp = str;
+	len = strlen(str);
+
+	memset(lbuf, 0, COMMAND_LONG_BUFSIZE);
+	memset(buf, 0, COMMAND_SHORT_BUFSIZE);
+	indexChar = 0;
+	for ( int i = 0; i < len; i++ )
+	{
+		if (*(tmp + i) == ':' || i == len - 1)
+		{
+			if (i == len - 1)
+				buf[indexChar++] = *(tmp + i);
+
+			u8a = strlen(buf);
+			if (u8a > 0)
+			{
+				u8b = 0;
+				if (u8a > 1)
+				{
+					u8b = char_to_byte(buf[0]) * 10;
+					u8b += char_to_byte(buf[1]);
+				}
+				else
+					u8b = char_to_byte(buf[0]);
+				lbuf[indexStr++] = u8b;
+			}
+			memset(buf, 0, COMMAND_SHORT_BUFSIZE);
+			indexChar = 0;
+		}
+		else
+			buf[indexChar++] = *(tmp + i);
+	}
+
+	memcpy(str, lbuf, size);
+}
+
+static void parseBangla(CMD_HandleTypeDef *cmd)
+{
+//	parseStringBangla(cmd->coachName,COMMAND_SHORT_BUFSIZE);
+	parseStringBangla(cmd->trainInfo.id, COMMAND_SHORT_BUFSIZE);
+	parseStringBangla(cmd->trainInfo.name, COMMAND_LONG_BUFSIZE);
+	parseStringBangla(cmd->stationInfo.name, COMMAND_LONG_BUFSIZE);
+	parseStringBangla(cmd->stationInfo.first, COMMAND_LONG_BUFSIZE);
+	parseStringBangla(cmd->stationInfo.end, COMMAND_LONG_BUFSIZE);
 }
 
 /* TODO */
