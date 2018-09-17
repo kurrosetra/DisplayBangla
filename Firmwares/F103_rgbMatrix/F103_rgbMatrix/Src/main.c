@@ -68,7 +68,7 @@ UART_HandleTypeDef huart1;
 #define SW_VERSION				"v1.3.0"
 #define RUNNING_SPEED			25
 
-#define OE_MIN					((OE_MAX_DUTY * 5) / 1000)
+#define OE_MIN					((OE_MAX_DUTY * 150) / 1000)
 #define UART_BUFSIZE			1024
 
 #define CMD_CHAR_HEADER			'$'
@@ -84,6 +84,7 @@ const char railways_eng[COMMAND_SHORT_BUFSIZE] = "Railways";
 const char bangladesh_bangla[COMMAND_SHORT_BUFSIZE] = { 34, 50, 55, 38, 50, 59, 29, 40 };
 const char railways_bangla[COMMAND_SHORT_BUFSIZE] = { 59, 35, 38, 10, 59, 63 };
 const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 6, 59, 28, 59, 56, 6 };
+const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { ' ', 't', 'o', ' ' };
 
 char uartBuffer[UART_BUFSIZE];
 volatile ITStatus uart1RxReady = RESET;
@@ -103,6 +104,7 @@ const uint32_t DISCONNECTED_REFRESH_TIMEOUT = 5000;
 const uint32_t DISPLAY_REFRESH_TIMEOUT = 5000;
 int16_t xCoachLineEnd = 0;
 int16_t xTrainIdLineEnd = 0;
+const uint32_t ANIMATION_START_TIMEOUT = 1000;
 
 const uint32_t OE_MAX_VAL = OE_MAX_DUTY - OE_MIN;
 const uint32_t OE_MIN_VAL = (OE_MAX_DUTY * 85) / 100;
@@ -166,8 +168,8 @@ static void layoutConnectedValid(uint8_t coach_len);
 static void layoutDisconnected(uint8_t * lang);
 static void layoutCoachName(uint8_t len);
 static void layoutTrainID();
-static void layoutTrainName();
-static void layoutTrainRoute();
+static int16_t layoutTrainName(int16_t xOffset);
+static int16_t layoutTrainRoute(int16_t xOffset);
 
 static uint8_t char_to_byte(char c);
 static uint8_t parseCommand();
@@ -251,6 +253,13 @@ int main(void)
 	uint32_t disconnectRefreshTimer = 0;
 	uint32_t displayRefreshTimer = 0;
 	uint8_t layoutState = 0;
+	uint8_t animationState = 0;
+	uint32_t animationTimer = 0;
+	int16_t xTrainNameOffset = 0;
+	int16_t xTrainRouteOffset = 0;
+	int16_t xTrainNameEnd = 0;
+	int16_t xTrainRouteEnd = 0;
+	uint8_t u8a;
 
 	while (1)
 	{
@@ -295,8 +304,39 @@ int main(void)
 					else if (layoutState == 0)
 						//change to disconnect display
 						disconnectTimer = 0;
+					else if (layoutState == 2)
+					{
+						animationState = 1;
+						animationTimer = millis + ANIMATION_START_TIMEOUT;
+						xTrainNameOffset = 0;
+						xTrainRouteOffset = 0;
+					}
 				}
 
+				if (animationState)
+				{
+					if (millis >= animationTimer && !swapBufferStart)
+					{
+						animationTimer = millis + 25;
+
+						u8a = strlen(infoDisplay.coachName);
+						rgb_frame_clear();
+
+						layoutCoachName(u8a);
+						layoutTrainID();
+						xTrainNameEnd = layoutTrainName(xTrainNameOffset);
+						if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
+							xTrainNameOffset++;
+						xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
+						if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
+							xTrainRouteOffset++;
+
+						if (xTrainNameEnd <= MATRIX_MAX_WIDTH && xTrainRouteEnd <= MATRIX_MAX_WIDTH)
+							animationState = 0;
+
+						swapBufferStart = 1;
+					}
+				}
 			}
 		}
 
@@ -306,16 +346,6 @@ int main(void)
 			swapBufferStart = 1;
 			clearScreenForUpload = 1;
 			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
-//			if (clearScreenForUpload == 0)
-//			{
-//				clearScreenForUpload = 1;
-//				HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
-//			}
-//			else
-//			{
-//				clearScreenForUpload = 0;
-//				HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_RESET);
-//			}
 			buttonPress = RESET;
 		}
 	}
@@ -477,11 +507,11 @@ static void MX_USART1_UART_Init(void)
 {
 
 	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 460800;
+	huart1.Init.BaudRate = CMD_BAUD;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
 	huart1.Init.StopBits = UART_STOPBITS_1;
 	huart1.Init.Parity = UART_PARITY_NONE;
-	huart1.Init.Mode = UART_MODE_TX_RX;
+	huart1.Init.Mode = UART_MODE_RX;
 	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
 	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
 	if (HAL_UART_Init(&huart1) != HAL_OK)
@@ -666,63 +696,93 @@ static void layoutTrainID()
 		xTrainIdLineEnd = xCoachLineEnd;
 }
 
-static void layoutTrainName()
+static int16_t layoutTrainName(int16_t xOffset)
 {
 	uint16_t train_len = strlen(infoDisplay.trainInfo.name);
 	int16_t xPos = xTrainIdLineEnd;
+	int16_t xEnd = MATRIX_MAX_WIDTH;
 
 	if (train_len)
 	{
 		if (infoDisplay.language == 0)
-			rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 2,
+		{
+			rgb_print_constrain(xPos - xOffset, 0, infoDisplay.trainInfo.name, train_len, 0b1, 2,
 					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+
+			xEnd = (train_len * (5 * 2 + 2)) - xOffset;
+		}
 		else
-			rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 1,
-					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+		{
+			rgb_bangla_print_constrain(xPos - xOffset, 0, infoDisplay.trainInfo.name, train_len,
+					0b1, 1, xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+			xEnd = train_len * 10 - xOffset;
+		}
 	}
+
+	return xEnd;
 }
 
 /* TODO outdoor & indoor handler*/
 #if DISPLAY_OUTDOOR
-static void layoutTrainRoute()
+static int16_t layoutTrainRoute(int16_t xOffset)
 {
-	char destination[2 * COMMAND_LONG_BUFSIZE];
-	int16_t destination_len = 0;
 	int16_t xPos = xCoachLineEnd;
 	int16_t x = 0, x1;
+	int16_t xEnd = MATRIX_MAX_WIDTH;
+	int16_t i16a, i16b;
+
+	i16a = strlen(infoDisplay.stationInfo.first);
+	i16b = strlen(infoDisplay.stationInfo.end);
 
 	if (infoDisplay.language == 0)
 	{
-		sprintf(destination, "%s to %s", infoDisplay.stationInfo.first,
-				infoDisplay.stationInfo.end);
+		if (i16a > 0 && i16b > 0)
+		{
+			x = xPos - xOffset;
+			x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.first, i16a, 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x += x1;
+			if (x < MATRIX_MAX_WIDTH)
+			{
+				x1 = rgb_print_constrain(x, 16, (char *) to_in_eng, strlen(to_in_eng), 0b10, 2,
+						xCoachLineEnd,
+						MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+				x += x1;
 
-		destination_len = strlen(destination);
-		if (destination_len > 4)
-			rgb_print_constrain(xPos, 16, destination, destination_len, 0b1, 2, xCoachLineEnd,
-			MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+				if (x < MATRIX_MAX_WIDTH)
+				{
+					x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.end, i16b, 0b1, 2,
+							xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+//					x += x1;
+				}
+			}
+			xEnd = ((i16a + i16b + strlen(to_in_eng)) * (5 * 2 + 2)) - xOffset;
+		}
 	}
 	else
 	{
-		x = xPos;
+		x = xPos - xOffset;
 		x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.first,
 				strlen(infoDisplay.stationInfo.first), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
 				MATRIX_MAX_HEIGHT);
 
-		x = x + x1;
+		x += x1;
 		if (x < MATRIX_MAX_WIDTH)
 		{
 			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla), 0b10,
 					1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 
-			x = x + x1;
+			x += x1;
 			if (x < MATRIX_MAX_WIDTH)
 				x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
 						strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
 						MATRIX_MAX_HEIGHT);
+//			x += x1;
 		}
-
+		xEnd = ((i16a + i16b + strlen(to_in_eng)) * 10) - xOffset;
 	}
 
+	return xEnd;
 }
 #endif	//if DISPLAY_OUTDOOR
 
@@ -775,8 +835,8 @@ static void layoutConnectedValid(uint8_t coach_len)
 
 	layoutCoachName(coach_len);
 	layoutTrainID();
-	layoutTrainName();
-	layoutTrainRoute();
+	layoutTrainName(0);
+	layoutTrainRoute(0);
 
 	swapBufferStart = 1;
 }
@@ -920,6 +980,17 @@ static uint8_t parseCommand()
 			cmdCounter = atoi(buf);
 			cmdTem.language = cmdCounter % 2;
 
+			/* coachName */
+			awal = i + 1;
+			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
+			s = cmdTem.coachName;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
 			/* trainID */
 			awal = i + 1;
 			memset(cmdTem.trainInfo.id, 0, COMMAND_SHORT_BUFSIZE);
@@ -982,17 +1053,6 @@ static uint8_t parseCommand()
 			s = cmdTem.stationInfo.end;
 			for ( i = awal; i < cmdIn_length; i++ )
 			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-			/* coachName */
-			awal = i + 1;
-			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
-			s = cmdTem.coachName;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
 				if (cmdIn[i] == CMD_CHAR_TERMINATOR)
 					break;
 				else
@@ -1006,7 +1066,9 @@ static uint8_t parseCommand()
 				infoBangla = cmdTem;
 			}
 			else
+			{
 				infoEng = cmdTem;
+			}
 
 			HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
 		}
@@ -1063,7 +1125,6 @@ static void parseStringBangla(char *str, uint16_t size)
 
 static void parseBangla(CMD_HandleTypeDef *cmd)
 {
-//	parseStringBangla(cmd->coachName,COMMAND_SHORT_BUFSIZE);
 	parseStringBangla(cmd->trainInfo.id, COMMAND_SHORT_BUFSIZE);
 	parseStringBangla(cmd->trainInfo.name, COMMAND_LONG_BUFSIZE);
 	parseStringBangla(cmd->stationInfo.name, COMMAND_LONG_BUFSIZE);
