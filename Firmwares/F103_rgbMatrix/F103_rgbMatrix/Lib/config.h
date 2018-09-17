@@ -30,8 +30,8 @@
 #define MATRIX_SCANROW				MATRIX_SCANROWS_8
 
 #elif DISPLAY_INDOOR==1
-#define FRAME_ORIENTATION			FRAME_ORIENTATION_3
-#define MATRIX_SCANROW				MATRIX_SCANROWS_8
+#define FRAME_ORIENTATION			FRAME_ORIENTATION_1
+#define MATRIX_SCANROW				MATRIX_SCANROWS_16
 
 #endif	//if DISPLAY_OUTDOOR==1
 
@@ -58,10 +58,7 @@
 #define FRAME_BUFSIZE				MATRIX_MAX_WIDTH
 #endif	//if MATRIX_SCANROW==MATRIX_SCANROWS_8
 
-#define FRAME_START_OFFSET			0
-#define FRAME_END_OFFSET			2
-#define FRAME_OFFSET				(FRAME_START_OFFSET + FRAME_END_OFFSET)
-#define FRAME_SIZE					(FRAME_BUFSIZE + FRAME_OFFSET)
+#define FRAME_SIZE					(FRAME_BUFSIZE * 2)
 
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))

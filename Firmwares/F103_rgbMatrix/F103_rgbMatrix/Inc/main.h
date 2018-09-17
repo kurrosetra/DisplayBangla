@@ -49,7 +49,7 @@
 
 /* Private define ------------------------------------------------------------*/
 #define CLK_PSC 0
-#define CLK_ARR 23
+#define CLK_ARR 11
 #define CLK_MAX_DUTY (CLK_ARR + 1)
 #define OE_PSC 0
 #define OE_ARR 14399
@@ -73,16 +73,14 @@
 #define g2_GPIO_Port GPIOA
 #define b2_Pin GPIO_PIN_5
 #define b2_GPIO_Port GPIOA
-#define clk_en_Pin GPIO_PIN_7
-#define clk_en_GPIO_Port GPIOA
+#define clk_Pin GPIO_PIN_7
+#define clk_GPIO_Port GPIOA
 #define da_Pin GPIO_PIN_0
 #define da_GPIO_Port GPIOB
 #define db_Pin GPIO_PIN_1
 #define db_GPIO_Port GPIOB
 #define dc_Pin GPIO_PIN_2
 #define dc_GPIO_Port GPIOB
-#define clk_Pin GPIO_PIN_8
-#define clk_GPIO_Port GPIOA
 #define oe_Pin GPIO_PIN_15
 #define oe_GPIO_Port GPIOA
 #define dd_Pin GPIO_PIN_3
