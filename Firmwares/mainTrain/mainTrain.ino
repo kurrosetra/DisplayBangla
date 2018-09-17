@@ -11,15 +11,15 @@
  */
 
 const String hardwareVersion = "1.0.0";
-const String softwareVersion = "1.2.1";
+const String softwareVersion = "1.2.0";
 
-#define DEBUG            	1
+#define DEBUG            1
 #if DEBUG
 # define LCD_DEBUG          0
-# define SD_DEBUG         	0
+# define SD_DEBUG         0
 # define BUTTON_DEBUG       0
-# define DATA_DEBUG         1
-# define GPS_DEBUG          0
+# define DATA_DEBUG         0
+# define GPS_DEBUG          1
 
 #endif  //#if DEBUG
 
@@ -40,12 +40,12 @@ const byte button[4] = { A3/*RIGHT / SELECT*/, A6/*LEFT / BACK*/,
 #define BUS_UART        Serial1
 #define DISP_UART       Serial3
 
-#define BUS_RT_INIT()     	bitSet(DDRD,DDD4)
+#define BUS_RT_INIT()     bitSet(DDRD,DDD4)
 #define BUS_RT_TRANSMIT()   bitSet(PORTD,PORTD4)
 #define BUS_RT_RECEIVE()    bitClear(PORTD,PORTD4)
 
 #define DISP_RT_INIT()      bitSet(DDRJ,DDJ2)
-#define DISP_RT_TRANSMIT()  bitSet(PORTJ,PORTJ2)
+#define DISP_RT_TRANSMIT()    bitSet(PORTJ,PORTJ2)
 #define DISP_RT_RECEIVE()   bitClear(PORTJ,PORTJ2)
 
 const uint32_t DEBOUNCE_DELAY = 100;
@@ -862,7 +862,6 @@ void masterInit() {
   Serial.println(trainParameter.stationInfo.state);
 #endif  //#if DEBUG
 
-  masterUpdateTrainBangla();
 }
 
 void masterUpdateTrain(Train_Detail_t *td, uint16_t id) {
@@ -1646,7 +1645,7 @@ void dataBusParsing() {
 
 // Station End
   awal = akhir + 1;
-  akhir = dataBus.indexOf('*', awal);
+  akhir = dataBus.indexOf(',', awal);
   tem = dataBus.substring(awal, akhir);
   if (counter % 2 == 0)
     trainParameter.stationInfo.end = tem;
@@ -1671,10 +1670,7 @@ void dataDispSend() {
     dispSendTimer = millis() + DISP_SEND_TIMEOUT;
 
     if (dataDispCreate(&dataDisp)) {
-#ifdef DATA_DEBUG
-		Serial.println(F("==data to Display=="));
-      Serial.println(dataDisp);
-#endif
+      //Serial.print(dataBus);
       transmission = 1;
       transmitPointer = 0;
     }
@@ -1744,11 +1740,6 @@ bool dataDispCreate(String *s) {
     *s += '*';
 
   }
-
-#ifdef DATA_DEBUG
-	Serial.println(F("==before CRC added=="));
-	Serial.println(*s);
-#endif
 
 //  counter += 2;
   counter++;
