@@ -61,7 +61,8 @@
 #define FRAME_START_OFFSET			0
 #define FRAME_END_OFFSET			2
 #define FRAME_OFFSET				(FRAME_START_OFFSET + FRAME_END_OFFSET)
-#define FRAME_SIZE					(FRAME_BUFSIZE + FRAME_OFFSET)
+//#define FRAME_SIZE					(FRAME_BUFSIZE + FRAME_OFFSET)
+#define FRAME_SIZE					(FRAME_BUFSIZE * 2)
 
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))

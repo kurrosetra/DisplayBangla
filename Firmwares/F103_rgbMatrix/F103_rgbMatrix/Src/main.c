@@ -52,7 +52,7 @@ IWDG_HandleTypeDef hiwdg;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
-DMA_HandleTypeDef hdma_tim1_ch1;
+DMA_HandleTypeDef hdma_tim1_up;
 
 UART_HandleTypeDef huart1;
 
@@ -226,8 +226,10 @@ int main(void)
 	activeFrameRowAdress = rgb_get_buffer(0);
 
 	/* enable tim1 dma */
-	__HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
-	hdma_tim1_ch1.XferCpltCallback = dmaTransferCompleted;
+	__HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
+	hdma_tim1_up.XferCpltCallback = dmaTransferCompleted;
+	/* start timer 1 */
+	HAL_TIM_Base_Start(&htim1);
 
 	/* enable tim3 */
 	HAL_TIM_Base_Start_IT(&htim2);
@@ -392,8 +394,6 @@ static void MX_TIM1_Init(void)
 
 	TIM_ClockConfigTypeDef sClockSourceConfig;
 	TIM_MasterConfigTypeDef sMasterConfig;
-	TIM_OC_InitTypeDef sConfigOC;
-	TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig;
 
 	htim1.Instance = TIM1;
 	htim1.Init.Prescaler = CLK_PSC;
@@ -413,43 +413,12 @@ static void MX_TIM1_Init(void)
 		_Error_Handler(__FILE__, __LINE__);
 	}
 
-	if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-	{
-		_Error_Handler(__FILE__, __LINE__);
-	}
-
 	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
 	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
 	if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
 	{
 		_Error_Handler(__FILE__, __LINE__);
 	}
-
-	sConfigOC.OCMode = TIM_OCMODE_PWM1;
-	sConfigOC.Pulse = CLK_MAX_DUTY / 2;
-	sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-	sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-	sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
-	sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-	sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-	if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-	{
-		_Error_Handler(__FILE__, __LINE__);
-	}
-
-	sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-	sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-	sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-	sBreakDeadTimeConfig.DeadTime = 0;
-	sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-	sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-	sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-	if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-	{
-		_Error_Handler(__FILE__, __LINE__);
-	}
-
-	HAL_TIM_MspPostInit(&htim1);
 
 }
 
@@ -508,7 +477,7 @@ static void MX_USART1_UART_Init(void)
 {
 
 	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 38400;
+	huart1.Init.BaudRate = 460800;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
 	huart1.Init.StopBits = UART_STOPBITS_1;
 	huart1.Init.Parity = UART_PARITY_NONE;
@@ -532,9 +501,9 @@ static void MX_DMA_Init(void)
 	;
 
 	/* DMA interrupt init */
-	/* DMA1_Channel2_IRQn interrupt configuration */
-	HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+	/* DMA1_Channel5_IRQn interrupt configuration */
+	HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
 
@@ -566,7 +535,7 @@ static void MX_GPIO_Init(void)
 	HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(GPIOA, r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin | clk_en_Pin,
+	HAL_GPIO_WritePin(GPIOA, r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin | clk_Pin,
 			GPIO_PIN_RESET);
 
 	/*Configure GPIO pin Output Level */
@@ -591,24 +560,17 @@ static void MX_GPIO_Init(void)
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
 	/*Configure GPIO pins : r1_Pin g1_Pin b1_Pin r2_Pin
-	 g2_Pin b2_Pin */
-	GPIO_InitStruct.Pin = r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin;
+	 g2_Pin b2_Pin clk_Pin */
+	GPIO_InitStruct.Pin = r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin | clk_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	/*Configure GPIO pins : PA6 PA11 PA12 */
-	GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_11 | GPIO_PIN_12;
+	/*Configure GPIO pins : PA6 PA8 PA11 PA12 */
+	GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_8 | GPIO_PIN_11 | GPIO_PIN_12;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-	/*Configure GPIO pin : clk_en_Pin */
-	GPIO_InitStruct.Pin = clk_en_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	HAL_GPIO_Init(clk_en_GPIO_Port, &GPIO_InitStruct);
 
 	/*Configure GPIO pins : da_Pin db_Pin dc_Pin dd_Pin
 	 stb_Pin */
@@ -764,7 +726,6 @@ static void layoutTrainRoute()
 }
 #endif	//if DISPLAY_OUTDOOR
 
-
 #if DISPLAY_INDOOR
 static void layoutTrainRoute()
 {
@@ -780,8 +741,8 @@ static void layoutTrainRoute()
 
 		destination_len = strlen(destination);
 		if (destination_len > 4)
-			rgb_print_constrain(xPos, 16, destination, destination_len, 0b1, 2, xCoachLineEnd,
-			MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+		rgb_print_constrain(xPos, 16, destination, destination_len, 0b1, 2, xCoachLineEnd,
+				MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 	}
 	else
 	{
@@ -798,16 +759,15 @@ static void layoutTrainRoute()
 
 			x = x + x1;
 			if (x < MATRIX_MAX_WIDTH)
-				x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
-						strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
-						MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
+					strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+					MATRIX_MAX_HEIGHT);
 		}
 
 	}
 
 }
 #endif	//if DISPLAY_INDOOR
-
 
 static void layoutConnectedValid(uint8_t coach_len)
 {
@@ -1115,40 +1075,37 @@ static void parseBangla(CMD_HandleTypeDef *cmd)
 
 void startDmaTransfering()
 {
-	HAL_DMA_Start_IT(&hdma_tim1_ch1, activeFrameRowAdress, (uint32_t) &DATA_GPIO->ODR, FRAME_SIZE);
-	__HAL_DMA_DISABLE_IT(&hdma_tim1_ch1, DMA_IT_HT);
+	HAL_DMA_Start_IT(&hdma_tim1_up, activeFrameRowAdress, (uint32_t) &DATA_GPIO->ODR, FRAME_SIZE);
+//	__HAL_DMA_DISABLE_IT(&hdma_tim1_up, DMA_IT_HT);
 
 	/* Start TIM PWM channel 1 */
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+//	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 }
 
 void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
 {
-	if (hdma->Instance == DMA1_Channel2)
-	{
-		DATA_GPIO->BSRR = DATA_BSSR_CLEAR;
-		HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	DATA_GPIO->BSRR = DATA_BSSR_CLEAR;
+//		HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
 
-		/* update matrix row */
-		if (++matrix_row >= MATRIX_SCANROW)
+	/* update matrix row */
+	if (++matrix_row >= MATRIX_SCANROW)
+	{
+		matrix_row = 0;
+		if (swapBufferStart)
 		{
-			matrix_row = 0;
-			if (swapBufferStart)
-			{
-				rgb_swap_buffer();
-				swapBufferStart = 0;
-			}
+			rgb_swap_buffer();
+			swapBufferStart = 0;
+		}
 
 #if DEBUG
-			fps++;
+		fps++;
 #endif	//if DEBUG
 
-		}
-		activeFrameRowAdress = rgb_get_buffer(matrix_row);
-
-		/* set stb low */
-		CONTROL_GPIO->BSRR = CONTROL_BSSR_STB_CLEAR;
 	}
+	activeFrameRowAdress = rgb_get_buffer(matrix_row);
+
+	/* set stb low */
+	CONTROL_GPIO->BSRR = CONTROL_BSSR_STB_CLEAR;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
