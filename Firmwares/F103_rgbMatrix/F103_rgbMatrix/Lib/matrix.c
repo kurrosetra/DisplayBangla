@@ -109,36 +109,18 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 #if MATRIX_SCANROW==MATRIX_SCANROWS_16
 		row = y % 16;
 		lines = x;
+		if (y >= MATRIX_PANEL_HEIGHT / 2)
+			busNumber = 8;
 #endif	//if MATRIX_SCANROW==MATRIX_SCANROWS_16
 
 		/* TODO handle color*/
-		if (color & 0b1)
-		{
-			if (busNumber == 0)
-				rgbVal = 0b1;
-			else
-				rgbVal = 0b1000;
-			frameBuffer[bufferIndex][row][lines * 2] |= rgbVal;
-			frameBuffer[bufferIndex][row][lines * 2 + 1] |= rgbVal | clk_Pin;
-		}
-		if (color & 0b10)
-		{
-			if (busNumber == 0)
-				rgbVal = 0b10;
-			else
-				rgbVal = 0b10000;
-			frameBuffer[bufferIndex][row][lines * 2] |= rgbVal;
-			frameBuffer[bufferIndex][row][lines * 2 + 1] |= rgbVal | clk_Pin;
-		}
-		if (color & 0b100)
-		{
-			if (busNumber == 0)
-				rgbVal = 0b100;
-			else
-				rgbVal = 0b100000;
-			frameBuffer[bufferIndex][row][lines * 2] |= rgbVal;
-			frameBuffer[bufferIndex][row][lines * 2 + 1] |= rgbVal | clk_Pin;
-		}
+		if (busNumber == 0)
+			rgbVal = color;
+		else
+			rgbVal = color << 3;
+
+		frameBuffer[bufferIndex][row][lines * 2] |= rgbVal;
+		frameBuffer[bufferIndex][row][lines * 2 + 1] |= rgbVal | clk_Pin;
 
 	}
 }

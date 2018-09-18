@@ -103,7 +103,7 @@
 #undef OE_MAX_DUTY
 
 #define OE_PSC 0
-#define OE_ARR 7199
+#define OE_ARR 7999
 #define OE_MAX_DUTY (OE_ARR + 1)
 
 #endif	//if MATRIX_SCANROW==16
