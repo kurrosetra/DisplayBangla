@@ -64,8 +64,8 @@ UART_HandleTypeDef huart1;
 #define RGB_PANEL_DEBUG			0
 #endif	//if DEBUG
 
-#define HW_VERSION				"v1.0.0"
-#define SW_VERSION				"v1.3.6"
+#define HW_VERSION				"v1.1.0"
+#define SW_VERSION				"v1.3.6b"
 #define RUNNING_SPEED			25
 
 #define OE_MIN					((OE_MAX_DUTY * 200) / 1000)
@@ -114,7 +114,7 @@ volatile uint32_t fps = 0;
 uint32_t millis = 0;
 const uint32_t DISCONNECTED_TIMEOUT = 10000;
 const uint32_t DISCONNECTED_REFRESH_TIMEOUT = 5000;
-const uint32_t DISPLAY_REFRESH_TIMEOUT = 5000;
+const uint32_t DISPLAY_REFRESH_TIMEOUT = 10000;
 int16_t xCoachLineEnd = 0;
 int16_t xTrainIdLineEnd = 0;
 const uint32_t ANIMATION_START_TIMEOUT = 1000;
@@ -346,14 +346,14 @@ int main(void)
 				{
 					if (millis >= animationTimer && !swapBufferStart)
 					{
-						animationTimer = millis + 15;
+						animationTimer = millis + 25;
 
 						u8a = strlen(infoDisplay.coachName);
 						rgb_frame_clear();
 
 						layoutCoachName(u8a);
 #if DISPLAY_OUTDOOR
-						layoutTrainID(0);
+						layoutTrainID(xTrainNameOffset);
 						xTrainNameEnd = layoutTrainName(xTrainNameOffset);
 						if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
 							xTrainNameOffset++;
@@ -728,12 +728,12 @@ static void layoutTrainID(int16_t xOffset)
 	if (id_len)
 	{
 		if (infoDisplay.language == 0)
-			xTrainIdLineEnd = rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.id, id_len, 0b10,
-					2, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
+			xTrainIdLineEnd = rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.id, id_len, 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
 
 		else
 			xTrainIdLineEnd = rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.id, id_len,
-					0b10, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
 	}
 	else
 		xTrainIdLineEnd = xCoachLineEnd;
@@ -751,7 +751,7 @@ static int16_t layoutTrainName(int16_t xOffset)
 		{
 #if DISPLAY_OUTDOOR
 			rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 2,
-					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16);
 #elif DISPLAY_INDOOR
 			rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 2,
 					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16);
@@ -799,7 +799,7 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 			x += x1;
 			if (x < MATRIX_MAX_WIDTH)
 			{
-				x1 = rgb_print_constrain(x, 16, (char *) to_in_eng, strlen(to_in_eng), 0b10, 2,
+				x1 = rgb_print_constrain(x, 16, (char *) to_in_eng, strlen(to_in_eng), 0b1, 2,
 						xCoachLineEnd,
 						MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 				x += x1;
@@ -823,7 +823,7 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 			if (x < MATRIX_MAX_WIDTH)
 			{
 				x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-						0b10, 1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+						0b1, 1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 
 				x += x1;
 				if (x < MATRIX_MAX_WIDTH)
@@ -855,10 +855,10 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 		{
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
-			x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b10, 2,
+			x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b1, 2,
 					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
-			x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b10, 2,
+			x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b1, 2,
 					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.name,
@@ -872,10 +872,10 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
 			x1 = rgb_bangla_print_constrain(x, 16, (char*) at_in_bangla, strlen(at_in_bangla),
-					0b10, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
 			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-					0b10, 2, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+					0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.name,
 					strlen(infoDisplay.stationInfo.name), 0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH,
