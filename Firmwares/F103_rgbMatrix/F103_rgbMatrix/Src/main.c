@@ -64,8 +64,8 @@ UART_HandleTypeDef huart1;
 #define RGB_PANEL_DEBUG			0
 #endif	//if DEBUG
 
-#define HW_VERSION				"v1.1.0"
-#define SW_VERSION				"v1.3.6b"
+#define HW_VERSION				"v1.2.2"
+#define SW_VERSION				"v1.3.6c2"
 #define RUNNING_SPEED			25
 
 #define OE_MIN					((OE_MAX_DUTY * 200) / 1000)
@@ -382,14 +382,14 @@ int main(void)
 			}
 		}
 
-		if (buttonPress == SET)
-		{
-			rgb_frame_clear();
-			swapBufferStart = 1;
-			clearScreenForUpload = 1;
-			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
-			buttonPress = RESET;
-		}
+//		if (buttonPress == SET)
+//		{
+//			rgb_frame_clear();
+//			swapBufferStart = 1;
+//			clearScreenForUpload = 1;
+//			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
+//			buttonPress = RESET;
+//		}
 	}
 	/* USER CODE END 3 */
 
@@ -730,10 +730,11 @@ static void layoutTrainID(int16_t xOffset)
 		if (infoDisplay.language == 0)
 			xTrainIdLineEnd = rgb_print_constrain(xPos, 0, infoDisplay.trainInfo.id, id_len, 0b1, 2,
 					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
-
 		else
 			xTrainIdLineEnd = rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.id, id_len,
 					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16) + xCoachLineEnd;
+
+		xTrainIdLineEnd += 10;
 	}
 	else
 		xTrainIdLineEnd = xCoachLineEnd;
@@ -797,20 +798,15 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 					xCoachLineEnd,
 					MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
-			if (x < MATRIX_MAX_WIDTH)
-			{
-				x1 = rgb_print_constrain(x, 16, (char *) to_in_eng, strlen(to_in_eng), 0b1, 2,
-						xCoachLineEnd,
-						MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
-				x += x1;
 
-				if (x < MATRIX_MAX_WIDTH)
-				{
-					x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.end, i16b, 0b1, 2,
-							xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
-					x += x1;
-				}
-			}
+			x1 = rgb_print_constrain(x, 16, (char *) to_in_eng, strlen(to_in_eng), 0b1, 2,
+					xCoachLineEnd,
+					MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x += x1;
+
+			x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.end, i16b, 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x += x1;
 		}
 		else
 		{
@@ -820,18 +816,14 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 					MATRIX_MAX_HEIGHT);
 
 			x += x1;
-			if (x < MATRIX_MAX_WIDTH)
-			{
-				x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-						0b1, 1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla), 0b1,
+					1, xPos, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 
-				x += x1;
-				if (x < MATRIX_MAX_WIDTH)
-					x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
-							strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
-							MATRIX_MAX_HEIGHT);
-				x += x1 + 2;
-			}
+			x += x1;
+			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.end,
+					strlen(infoDisplay.stationInfo.end), 0b1, 1, xPos, MATRIX_MAX_WIDTH, 16,
+					MATRIX_MAX_HEIGHT);
+			x += x1 + 2;
 		}
 		xEnd = x;
 	}
@@ -875,10 +867,10 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
 			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-					0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.name,
-					strlen(infoDisplay.stationInfo.name), 0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH,
+					strlen(infoDisplay.stationInfo.name), 0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH,
 					16, MATRIX_MAX_HEIGHT);
 
 			x += x1 + 2;
@@ -1053,17 +1045,6 @@ static uint8_t parseCommand()
 			cmdCounter = atoi(buf);
 			cmdTem.language = cmdCounter % 2;
 
-			/* coachName */
-			awal = i + 1;
-			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
-			s = cmdTem.coachName;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
 			/* trainID */
 			awal = i + 1;
 			memset(cmdTem.trainInfo.id, 0, COMMAND_SHORT_BUFSIZE);
@@ -1124,6 +1105,17 @@ static uint8_t parseCommand()
 			awal = i + 1;
 			memset(cmdTem.stationInfo.end, 0, COMMAND_LONG_BUFSIZE);
 			s = cmdTem.stationInfo.end;
+			for ( i = awal; i < cmdIn_length; i++ )
+			{
+				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+					break;
+				else
+					*s++ = cmdIn[i];
+			}
+			/* coachName */
+			awal = i + 1;
+			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
+			s = cmdTem.coachName;
 			for ( i = awal; i < cmdIn_length; i++ )
 			{
 				if (cmdIn[i] == CMD_CHAR_TERMINATOR)

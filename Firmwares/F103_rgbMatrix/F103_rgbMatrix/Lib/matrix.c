@@ -350,9 +350,9 @@ int16_t rgb_bangla_print_constrain(int16_t x, int16_t y, char* s, uint16_t size,
 	{
 		for ( uint16_t i = 0; i < size; i++ )
 			rgb_bangla_write_constrain(x + (i * (FONT_BANGLA_X_SIZE * fontSize)), y, *(s + i),
-					color, fontSize, xMin, xMax, yMin, yMax);
+					color, 1, xMin, xMax, yMin, yMax);
 
-		ret = size * (FONT_BANGLA_X_SIZE * fontSize);
+		ret = size * FONT_BANGLA_X_SIZE;
 	}
 
 	return ret;
