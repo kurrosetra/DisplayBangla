@@ -764,7 +764,7 @@ static int16_t layoutTrainName(int16_t xOffset)
 		{
 #if DISPLAY_OUTDOOR
 			rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 1,
-					xTrainIdLineEnd, MATRIX_MAX_WIDTH, 0, 16);
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16);
 #elif DISPLAY_INDOOR
 			rgb_bangla_print_constrain(xPos, 0, infoDisplay.trainInfo.name, train_len, 0b1, 1,
 					xCoachLineEnd, MATRIX_MAX_WIDTH, 0, 16);
