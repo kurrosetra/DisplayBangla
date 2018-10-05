@@ -59,9 +59,6 @@
 
 #define LED_BUILTIN_Pin GPIO_PIN_13
 #define LED_BUILTIN_GPIO_Port GPIOC
-#define btn_Pin GPIO_PIN_14
-#define btn_GPIO_Port GPIOC
-#define btn_EXTI_IRQn EXTI15_10_IRQn
 #define r1_Pin GPIO_PIN_0
 #define r1_GPIO_Port GPIOA
 #define g1_Pin GPIO_PIN_1
