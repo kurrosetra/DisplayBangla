@@ -59,9 +59,6 @@ void SysTick_Handler(void);
 void DMA1_Channel5_IRQHandler(void);
 void TIM2_IRQHandler(void);
 void USART1_IRQHandler(void);
-void EXTI15_10_IRQHandler(void);
-
-__weak void usart1_callback_IT();
 
 #ifdef __cplusplus
 }

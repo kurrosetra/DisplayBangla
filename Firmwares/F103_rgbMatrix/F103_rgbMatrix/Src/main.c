@@ -64,8 +64,8 @@ UART_HandleTypeDef huart1;
 #define RGB_PANEL_DEBUG			0
 #endif	//if DEBUG
 
-#define HW_VERSION				"v1.2.2"
-#define SW_VERSION				"v1.3.6c2"
+#define HW_VERSION				"v1.2.3"
+#define SW_VERSION				"v1.3.7"
 #define RUNNING_SPEED			25
 
 #define OE_MIN					((OE_MAX_DUTY * 200) / 1000)
@@ -78,6 +78,14 @@ UART_HandleTypeDef huart1;
 
 #define COMMAND_SHORT_BUFSIZE			16
 #define COMMAND_LONG_BUFSIZE			128
+
+typedef struct
+{
+	char buffer[UART_BUFSIZE];
+	volatile uint16_t head;
+	volatile uint16_t tail;
+	uint16_t size;
+} Ring_Buffer_t;
 
 const char bangladesh_eng[COMMAND_SHORT_BUFSIZE] = "Bangladesh";
 const char railways_eng[COMMAND_SHORT_BUFSIZE] = "Railways";
@@ -99,9 +107,9 @@ const char to_in_eng[COMMAND_SHORT_BUFSIZE] =
 {	'T', 'o', ' '};
 #endif	//if DISPLAY_INDOOR
 
-char uartBuffer[UART_BUFSIZE];
+//char uartBuffer[UART_BUFSIZE];
+Ring_Buffer_t uartBuffer = { { 0 }, 0, 0, UART_BUFSIZE };
 volatile ITStatus uart1RxReady = RESET;
-volatile uint8_t uart1RxPointer = 0;
 volatile uint8_t swapBufferStart = 0;
 volatile uint32_t activeFrameRowAdress = 0;
 volatile uint32_t matrix_row = 0;
@@ -118,6 +126,7 @@ const uint32_t DISPLAY_REFRESH_TIMEOUT = 10000;
 int16_t xCoachLineEnd = 0;
 int16_t xTrainIdLineEnd = 0;
 const uint32_t ANIMATION_START_TIMEOUT = 1000;
+const uint32_t ANIMATION_RUNNING_TIMEOUT = 35;
 
 const uint32_t OE_MAX_VAL = OE_MAX_DUTY - OE_MIN;
 const uint32_t OE_MIN_VAL = (OE_MAX_DUTY * 85) / 100;
@@ -188,10 +197,14 @@ static uint8_t char_to_byte(char c);
 static uint8_t parseCommand();
 static void parseBangla(CMD_HandleTypeDef *cmd);
 
-void startDmaTransfering();
+static void startDmaTransfering();
+static void dmaTransferCompleted(DMA_HandleTypeDef *hdma);
+static void ring_buffer_write(Ring_Buffer_t *buffer, char c);
+static HAL_StatusTypeDef ring_buffer_read(Ring_Buffer_t *buffer, char *c);
+static HAL_StatusTypeDef ring_buffer_readString(Ring_Buffer_t *buffer, char *to, uint16_t size,
+		char start, char end);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
-void dmaTransferCompleted(DMA_HandleTypeDef *hdma);
-void usart1_callback_IT();
+
 static void delayIwdg(uint32_t _delayTime);
 /* USER CODE END PFP */
 
@@ -253,7 +266,6 @@ int main(void)
 
 	__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
 
-	HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_RESET);
 	HAL_IWDG_Refresh(&hiwdg);
 
 	sprintf(initDisplay, "Respati");
@@ -269,7 +281,6 @@ int main(void)
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
-	uint8_t clearScreenForUpload = 0;
 	uint8_t displayLang = 0;
 	uint32_t disconnectTimer = 0;
 	uint32_t disconnectRefreshTimer = 0;
@@ -300,96 +311,85 @@ int main(void)
 			disconnectRefreshTimer = 0;
 		}
 
-		if (!clearScreenForUpload)
+		if (millis >= disconnectTimer)
 		{
-			if (millis >= disconnectTimer)
+			if (disconnectRefreshTimer == 0)
 			{
-				if (disconnectRefreshTimer == 0)
-				{
-					rgb_frame_clear();
-					swapBufferStart = 1;
-					delayIwdg(500);
-				}
-				if (millis >= disconnectRefreshTimer)
-				{
-					disconnectRefreshTimer = millis + DISCONNECTED_REFRESH_TIMEOUT;
-					memset(infoEng.coachName, 0, COMMAND_SHORT_BUFSIZE);
-					memset(infoBangla.coachName, 0, COMMAND_SHORT_BUFSIZE);
-					displayRefreshTimer = 0;
-					animationState = 0;
+				rgb_frame_clear();
+				swapBufferStart = 1;
+				delayIwdg(500);
+			}
+			if (millis >= disconnectRefreshTimer)
+			{
+				disconnectRefreshTimer = millis + DISCONNECTED_REFRESH_TIMEOUT;
+				memset(infoEng.coachName, 0, COMMAND_SHORT_BUFSIZE);
+				memset(infoBangla.coachName, 0, COMMAND_SHORT_BUFSIZE);
+				displayRefreshTimer = 0;
+				animationState = 0;
 
-					layoutDisconnected(&displayLang);
+				layoutDisconnected(&displayLang);
+			}
+		}
+		else
+		{
+			if (millis >= displayRefreshTimer)
+			{
+				displayRefreshTimer = millis + DISPLAY_REFRESH_TIMEOUT;
+
+				layoutState = layoutConnected(&displayLang);
+				if (layoutState == 1)
+					displayRefreshTimer = 0;
+				else if (layoutState == 0)
+					//change to disconnect display
+					disconnectTimer = 0;
+				else if (layoutState == 2)
+				{
+					animationState = 1;
+					animationTimer = millis + ANIMATION_START_TIMEOUT;
+					xTrainNameOffset = 0;
+					xTrainRouteOffset = 0;
 				}
 			}
-			else
+
+			if (animationState)
 			{
-				if (millis >= displayRefreshTimer)
+				if (millis >= animationTimer && !swapBufferStart)
 				{
-					displayRefreshTimer = millis + DISPLAY_REFRESH_TIMEOUT;
+					animationTimer = millis + ANIMATION_RUNNING_TIMEOUT;
 
-					layoutState = layoutConnected(&displayLang);
-					if (layoutState == 1)
-						displayRefreshTimer = 0;
-					else if (layoutState == 0)
-						//change to disconnect display
-						disconnectTimer = 0;
-					else if (layoutState == 2)
-					{
-						animationState = 1;
-						animationTimer = millis + ANIMATION_START_TIMEOUT;
-						xTrainNameOffset = 0;
-						xTrainRouteOffset = 0;
-					}
-				}
+					u8a = strlen(infoDisplay.coachName);
+					rgb_frame_clear();
 
-				if (animationState)
-				{
-					if (millis >= animationTimer && !swapBufferStart)
-					{
-						animationTimer = millis + 25;
-
-						u8a = strlen(infoDisplay.coachName);
-						rgb_frame_clear();
-
-						layoutCoachName(u8a);
+					layoutCoachName(u8a);
 #if DISPLAY_OUTDOOR
-						layoutTrainID(xTrainNameOffset);
-						xTrainNameEnd = layoutTrainName(xTrainNameOffset);
-						if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
-							xTrainNameOffset++;
-						xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
-						if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
-							xTrainRouteOffset++;
-#elif DISPLAY_INDOOR
-						layoutTrainID(xTrainNameOffset);
-						xTrainNameEnd = layoutTrainName(xTrainNameOffset);
-						if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
+					layoutTrainID(xTrainNameOffset);
+					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
+					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
 						xTrainNameOffset++;
-						xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
-						if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
+					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
+					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
 						xTrainRouteOffset++;
+#elif DISPLAY_INDOOR
+					layoutTrainID(xTrainNameOffset);
+					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
+					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
+					xTrainNameOffset++;
+					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
+					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
+					xTrainRouteOffset++;
 #endif	//if DISPLAY_OUTDOOR
 
-						if (xTrainNameEnd <= MATRIX_MAX_WIDTH && xTrainRouteEnd <= MATRIX_MAX_WIDTH)
-						{
-							animationState = 0;
-							displayRefreshTimer = millis + 1000;
-						}
-
-						swapBufferStart = 1;
+					if (xTrainNameEnd <= MATRIX_MAX_WIDTH && xTrainRouteEnd <= MATRIX_MAX_WIDTH)
+					{
+						animationState = 0;
+						displayRefreshTimer = millis + 1000;
 					}
+
+					swapBufferStart = 1;
 				}
 			}
 		}
 
-//		if (buttonPress == SET)
-//		{
-//			rgb_frame_clear();
-//			swapBufferStart = 1;
-//			clearScreenForUpload = 1;
-//			HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
-//			buttonPress = RESET;
-//		}
 	}
 	/* USER CODE END 3 */
 
@@ -574,7 +574,7 @@ static void MX_DMA_Init(void)
 
 	/* DMA interrupt init */
 	/* DMA1_Channel5_IRQn interrupt configuration */
-	HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+	HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 1, 1);
 	HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
@@ -620,14 +620,8 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 	HAL_GPIO_Init(LED_BUILTIN_GPIO_Port, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : btn_Pin */
-	GPIO_InitStruct.Pin = btn_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	HAL_GPIO_Init(btn_GPIO_Port, &GPIO_InitStruct);
-
-	/*Configure GPIO pin : PC15 */
-	GPIO_InitStruct.Pin = GPIO_PIN_15;
+	/*Configure GPIO pins : PC14 PC15 */
+	GPIO_InitStruct.Pin = GPIO_PIN_14 | GPIO_PIN_15;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
@@ -659,10 +653,6 @@ static void MX_GPIO_Init(void)
 			| GPIO_PIN_15 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-	/* EXTI interrupt init*/
-	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
@@ -1001,142 +991,143 @@ static uint8_t parseCommand()
 
 	if (uart1RxReady == SET)
 	{
-		memcpy(cmdIn, uartBuffer, UART_BUFSIZE);
-		uart1RxReady = RESET;
-
-		/*
-		 * start parsing data
-		 *
-		 * $[counter],[trainID],[trainName],[stationName],[stationState],
-		 * [station first],[station end],[coachName]*[CRC]\n
-		 *
-		 */
-		cmdIn_length = strlen(cmdIn);
-		for ( i = 1; i < cmdIn_length; i++ )
+		if (ring_buffer_readString(&uartBuffer, cmdIn, UART_BUFSIZE, CMD_CHAR_HEADER,
+		CMD_CHAR_ENDLINE) == HAL_OK)
 		{
-			if (cmdIn[i] == CMD_CHAR_TERMINATOR)
-			{
-				awal = i;
-				break;
-			}
-			else
-				crcCalc ^= (uint8_t) cmdIn[i];
-		}
-		crcVal = char_to_byte(cmdIn[awal + 1]) << 4;
-		crcVal |= char_to_byte(cmdIn[awal + 2]);
+			LED_BUILTIN_GPIO_Port->ODR ^= LED_BUILTIN_Pin;
 
-		/* valid CRC */
-		if (crcCalc == crcVal)
-		{
-			ret = 1;
-
-			i = 0;
-			/* counter */
-			awal = i + 1;
-			memset(buf, 0, COMMAND_SHORT_BUFSIZE);
-			s = buf;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-			cmdCounter = atoi(buf);
-			cmdTem.language = cmdCounter % 2;
-
-			/* trainID */
-			awal = i + 1;
-			memset(cmdTem.trainInfo.id, 0, COMMAND_SHORT_BUFSIZE);
-			s = cmdTem.trainInfo.id;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-
-			/* trainName */
-			awal = i + 1;
-			memset(cmdTem.trainInfo.name, 0, COMMAND_LONG_BUFSIZE);
-			s = cmdTem.trainInfo.name;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-
-			/* stationName */
-			awal = i + 1;
-			memset(cmdTem.stationInfo.name, 0, COMMAND_LONG_BUFSIZE);
-			s = cmdTem.stationInfo.name;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-			/* station state */
-			awal = i + 1;
-
-			if (cmdIn[awal] == '0')
-				cmdTem.stationInfo.state = STATION_ARRIVED;
-			else if (cmdIn[awal] == '1')
-				cmdTem.stationInfo.state = STATION_TOWARD;
-
-			i = awal + 1;
-
-			/* station first */
-			awal = i + 1;
-			memset(cmdTem.stationInfo.first, 0, COMMAND_LONG_BUFSIZE);
-			s = cmdTem.stationInfo.first;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-			/* station end */
-			awal = i + 1;
-			memset(cmdTem.stationInfo.end, 0, COMMAND_LONG_BUFSIZE);
-			s = cmdTem.stationInfo.end;
-			for ( i = awal; i < cmdIn_length; i++ )
-			{
-				if (cmdIn[i] == CMD_CHAR_SEPARATOR)
-					break;
-				else
-					*s++ = cmdIn[i];
-			}
-			/* coachName */
-			awal = i + 1;
-			memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
-			s = cmdTem.coachName;
-			for ( i = awal; i < cmdIn_length; i++ )
+			/*
+			 * start parsing data
+			 *
+			 * $[counter],[trainID],[trainName],[stationName],[stationState],
+			 * [station first],[station end],[coachName]*[CRC]\n
+			 *
+			 */
+			cmdIn_length = strlen(cmdIn);
+			for ( i = 1; i < cmdIn_length; i++ )
 			{
 				if (cmdIn[i] == CMD_CHAR_TERMINATOR)
+				{
+					awal = i;
 					break;
+				}
 				else
-					*s++ = cmdIn[i];
+					crcCalc ^= (uint8_t) cmdIn[i];
 			}
-
-			cmdTem.updateAvailable = SET;
-			if (cmdCounter % 2 == 1)
+			crcVal = char_to_byte(cmdIn[awal + 1]) << 4;
+			crcVal |= char_to_byte(cmdIn[awal + 2]);
+			/* valid CRC */
+			if (crcCalc == crcVal)
 			{
-				parseBangla(&cmdTem);
-				infoBangla = cmdTem;
-			}
-			else
-			{
-				infoEng = cmdTem;
-			}
+				i = 0;
+				/* counter */
+				awal = i + 1;
+				memset(buf, 0, COMMAND_SHORT_BUFSIZE);
+				s = buf;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+				cmdCounter = atoi(buf);
+				cmdTem.language = cmdCounter % 2;
 
-			HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
+				/* trainID */
+				awal = i + 1;
+				memset(cmdTem.trainInfo.id, 0, COMMAND_SHORT_BUFSIZE);
+				s = cmdTem.trainInfo.id;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+
+				/* trainName */
+				awal = i + 1;
+				memset(cmdTem.trainInfo.name, 0, COMMAND_LONG_BUFSIZE);
+				s = cmdTem.trainInfo.name;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+
+				/* stationName */
+				awal = i + 1;
+				memset(cmdTem.stationInfo.name, 0, COMMAND_LONG_BUFSIZE);
+				s = cmdTem.stationInfo.name;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+				/* station state */
+				awal = i + 1;
+
+				if (cmdIn[awal] == '0')
+					cmdTem.stationInfo.state = STATION_ARRIVED;
+				else if (cmdIn[awal] == '1')
+					cmdTem.stationInfo.state = STATION_TOWARD;
+
+				i = awal + 1;
+
+				/* station first */
+				awal = i + 1;
+				memset(cmdTem.stationInfo.first, 0, COMMAND_LONG_BUFSIZE);
+				s = cmdTem.stationInfo.first;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+				/* station end */
+				awal = i + 1;
+				memset(cmdTem.stationInfo.end, 0, COMMAND_LONG_BUFSIZE);
+				s = cmdTem.stationInfo.end;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_SEPARATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+				/* coachName */
+				awal = i + 1;
+				memset(cmdTem.coachName, 0, COMMAND_SHORT_BUFSIZE);
+				s = cmdTem.coachName;
+				for ( i = awal; i < cmdIn_length; i++ )
+				{
+					if (cmdIn[i] == CMD_CHAR_TERMINATOR)
+						break;
+					else
+						*s++ = cmdIn[i];
+				}
+
+				cmdTem.updateAvailable = SET;
+				if (cmdCounter % 2 == 1)
+				{
+					parseBangla(&cmdTem);
+					infoBangla = cmdTem;
+				}
+				else
+				{
+					infoEng = cmdTem;
+				}
+
+				ret = 1;
+			}
 		}
+		uart1RxReady = RESET;
 	}
 
 	return ret;
@@ -1199,16 +1190,12 @@ static void parseBangla(CMD_HandleTypeDef *cmd)
 
 /* TODO */
 
-void startDmaTransfering()
+static void startDmaTransfering()
 {
 	HAL_DMA_Start_IT(&hdma_tim1_up, activeFrameRowAdress, (uint32_t) &DATA_GPIO->ODR, FRAME_SIZE);
-//	__HAL_DMA_DISABLE_IT(&hdma_tim1_up, DMA_IT_HT);
-
-	/* Start TIM PWM channel 1 */
-//	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 }
 
-void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
+static void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
 {
 	DATA_GPIO->BSRR = DATA_BSSR_CLEAR;
 
@@ -1241,13 +1228,61 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	startDmaTransfering();
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+static void ring_buffer_write(Ring_Buffer_t *buffer, char c)
 {
-	if (GPIO_Pin == GPIO_PIN_14)
+	uint16_t i = (buffer->head + 1) % buffer->size;
+
+	if (i != buffer->tail)
 	{
-		buttonPress = SET;
-		HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
+		buffer->buffer[buffer->head] = c;
+		buffer->head = i;
 	}
+}
+
+static HAL_StatusTypeDef ring_buffer_read(Ring_Buffer_t *buffer, char *c)
+{
+	if (buffer->head != buffer->tail)
+	{
+		char recvByte = buffer->buffer[buffer->tail];
+		buffer->tail = (buffer->tail + 1) % buffer->size;
+
+		*c = recvByte;
+
+		return HAL_OK;
+	}
+	return HAL_ERROR;
+}
+
+static HAL_StatusTypeDef ring_buffer_readString(Ring_Buffer_t *buffer, char *to, uint16_t size,
+		char start, char end)
+{
+	char c;
+	char * sendTo;
+	uint16_t index = 0;
+	FlagStatus startSaveBuffer = RESET;
+
+	memset(to, 0, size);
+	sendTo = to;
+	while (buffer->head != buffer->tail)
+	{
+		ring_buffer_read(buffer, &c);
+		if (c == start && startSaveBuffer == RESET)
+			startSaveBuffer = SET;
+
+		if (startSaveBuffer == SET)
+		{
+			*(sendTo + index) = c;
+			if (c == end)
+				break;
+
+			if (++index >= size)
+			{
+				memset(to, 0, size);
+				return HAL_ERROR;
+			}
+		}
+	}
+	return HAL_OK;
 }
 
 void usart1_callback_IT()
@@ -1259,15 +1294,9 @@ void usart1_callback_IT()
 	if ((isrflags & USART_SR_RXNE) != RESET)
 	{
 		c = (char) (huart1.Instance->DR & (uint8_t) 0x00FF);
-		if (c == CMD_CHAR_HEADER)
-		{
-			memset(uartBuffer, 0, UART_BUFSIZE);
-			uart1RxPointer = 0;
-		}
-		else if (c == CMD_CHAR_ENDLINE)
+		ring_buffer_write(&uartBuffer, c);
+		if (c == CMD_CHAR_ENDLINE)
 			uart1RxReady = SET;
-
-		uartBuffer[uart1RxPointer++] = c;
 	}
 
 	/* ------------------------------------------------------------ */

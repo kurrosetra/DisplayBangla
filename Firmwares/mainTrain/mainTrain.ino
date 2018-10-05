@@ -13,12 +13,12 @@
 const String hardwareVersion = "1.2.0";
 const String softwareVersion = "1.3.7";
 
-#define DEBUG            	0
+#define DEBUG            	1
 #if DEBUG
-# define LCD_DEBUG          0
-# define SD_DEBUG         	0
-# define BUTTON_DEBUG       0
-# define DATA_DEBUG         0
+# define LCD_DEBUG          1
+# define SD_DEBUG         	1
+# define BUTTON_DEBUG       1
+# define DATA_DEBUG         1
 # define GPS_DEBUG          1
 
 #endif  //#if DEBUG
@@ -33,20 +33,15 @@ const String softwareVersion = "1.3.7";
 const byte MASTER_PIN = A7;
 const byte LCD_BACKLIGHT_PIN = 6;
 const byte LCD_SS_PIN = 4;
+const byte LCD_RST_PIN = A2;
 const byte SD_SS_PIN = 7;
 const byte button[4] = { A3/*RIGHT / SELECT*/, A6/*LEFT / BACK*/,
 		A4 /*DOWN / NEXT*/, A5 /*UP / PREV*/};
-
+const byte DISP_RT_PIN = 29;
+const byte BUS_RX_PIN = 40;
+const byte BUS_TX_PIN = 41;
 #define BUS_UART        Serial1
 #define DISP_UART       Serial3
-
-#define BUS_RT_INIT()     	bitSet(DDRD,DDD4)
-#define BUS_RT_TRANSMIT()   bitSet(PORTD,PORTD4)
-#define BUS_RT_RECEIVE()    bitClear(PORTD,PORTD4)
-
-#define DISP_RT_INIT()      bitSet(DDRJ,DDJ2)
-#define DISP_RT_TRANSMIT()  bitSet(PORTJ,PORTJ2)
-#define DISP_RT_RECEIVE()   bitClear(PORTJ,PORTJ2)
 
 const uint32_t DEBOUNCE_DELAY = 100;
 
@@ -519,7 +514,7 @@ void lcdPageUpdate(byte dispStep) {
 					|| (trainDisplay.coachName.charAt(coachPointer - 1) == 0)) {
 				//done
 				for (byte i = coachPointer - 1; i < COACH_NAME_MAX_SIZE; i++)
-					trainDisplay.coachName.setCharAt(i, 0);
+					trainDisplay.coachName.setCharAt(i, ' ');
 				coachPointer = COACH_NAME_MAX_SIZE;
 				trainDisplay.coachName.trim();
 
@@ -874,7 +869,7 @@ void masterInit() {
 	masterUpdateStation(&trainParameter, 0, STATION_ARRIVED);
 
 	busSendTimer = millis() + BUS_SEND_TIMEOUT;
-	BUS_RT_TRANSMIT();
+	digitalWrite(BUS_TX_PIN, HIGH);
 
 #if DEBUG
 	Serial.println(F("trainInfo:"));
@@ -1373,7 +1368,7 @@ void slaveInit(Train_Detail_t *td) {
 	td->masterMode = SLAVE_MODE;
 	dataMasterCoachId = "";
 
-	BUS_RT_RECEIVE();
+	digitalWrite(BUS_TX_PIN, LOW);
 
 	lcdPageChange(lcdPageMain);
 }
@@ -1424,12 +1419,14 @@ void coachSetParameter(Train_Detail_t * td, String newName) {
  * *******************************************************************************
  */
 void dataInit() {
-	BUS_RT_INIT();
-	BUS_RT_RECEIVE();
+	pinMode(BUS_RX_PIN,OUTPUT);
+	pinMode(BUS_TX_PIN,OUTPUT);
+	digitalWrite(BUS_RX_PIN,LOW);
+	digitalWrite(BUS_TX_PIN,LOW);
 	BUS_UART.begin(9600);
 
-	DISP_RT_INIT();
-	DISP_RT_TRANSMIT();
+	pinMode(DISP_RT_PIN,OUTPUT);
+	digitalWrite(DISP_RT_PIN, HIGH);
 	DISP_UART.begin(38400);
 
 	dataBus.reserve(DATA_MAX_BUFSIZE);
@@ -1880,7 +1877,6 @@ void gpsHandler() {
 	}
 }
 
-/* TODO */
 void gpsUpdate() {
 	uint32_t distance = 0;
 
