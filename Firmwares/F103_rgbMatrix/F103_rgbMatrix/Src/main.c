@@ -68,7 +68,12 @@ UART_HandleTypeDef huart1;
 #define SW_VERSION				"v1.3.7"
 #define RUNNING_SPEED			25
 
+#if DISPLAY_OUTDOOR
 #define OE_MIN					((OE_MAX_DUTY * 200) / 1000)
+#else
+#define OE_MIN					((OE_MAX_DUTY * 500) / 1000)
+#endif	//if DISPLAY_OUTDOOR
+
 #define UART_BUFSIZE			1024
 
 #define CMD_CHAR_HEADER			'$'
