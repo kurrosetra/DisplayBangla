@@ -65,7 +65,7 @@ UART_HandleTypeDef huart1;
 #endif	//if DEBUG
 
 #define HW_VERSION				"v1.2.3"
-#define SW_VERSION				"v1.3.7"
+#define SW_VERSION				"v1.3.7a"
 #define RUNNING_SPEED			25
 
 #if DISPLAY_OUTDOOR
@@ -127,7 +127,7 @@ volatile uint32_t fps = 0;
 uint32_t millis = 0;
 const uint32_t DISCONNECTED_TIMEOUT = 10000;
 const uint32_t DISCONNECTED_REFRESH_TIMEOUT = 5000;
-const uint32_t DISPLAY_REFRESH_TIMEOUT = 10000;
+const uint32_t DISPLAY_REFRESH_TIMEOUT = 30000;
 int16_t xCoachLineEnd = 0;
 int16_t xTrainIdLineEnd = 0;
 const uint32_t ANIMATION_START_TIMEOUT = 1000;

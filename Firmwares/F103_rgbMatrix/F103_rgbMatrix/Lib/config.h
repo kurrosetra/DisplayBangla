@@ -10,7 +10,7 @@
 
 #include "stm32f1xx.h"
 
-#define DISPLAY_OUTDOOR				1
+#define DISPLAY_OUTDOOR				0
 #if DISPLAY_OUTDOOR==0
 #define DISPLAY_INDOOR				1
 #endif	//if DISPLAY_OUTDOOR==0
