@@ -47,18 +47,17 @@ const byte button[4] = { A3/*RIGHT / SELECT*/, A6/*LEFT / BACK*/,
 #if BOARD_KONTROLLER3A
 const byte BUS_MASTER_LED_PIN = 28;
 const byte DISP_RT_PIN = 29;
+const byte BUS_RX_PIN = 40;
+const byte BUS_TX_PIN = 41;
 #elif BOARD_KONTROLLER3
-#define BUS_MASTER_LED_INIT()	bitSet(DDRJ,DDJ3)
-#define BUS_MASTER_LED_ON()		bitSet(PORTJ,PORTJ3)
-#define BUS_MASTER_LED_OFF()	bitClear(PORTJ,PORTJ3)
-
+#define BUS_RT_INIT()			bitSet(DDRD,DDD4)
+#define BUS_RT_TRANSMIT()		bitSet(PORTD,PORTD4)
+#define BUS_RT_RECEIVE()		bitClear(PORTD,PORTD4)
 #define DISP_RT_INIT()			bitSet(DDRJ,DDJ2)
 #define DISP_RT_TRANSMIT()		bitSet(PORTJ,PORTJ2)
 #define DISP_RT_RECEIVE()		bitClear(PORTJ,PORTJ2)
 #endif	//BOARD_KONTROLLER3A
 
-const byte BUS_RX_PIN = 40;
-const byte BUS_TX_PIN = 41;
 #define BUS_UART        Serial1
 #define DISP_UART       Serial3
 
@@ -863,8 +862,6 @@ void sdInit() {
 void masterInit() {
 #if BOARD_KONTROLLER3A
 	digitalWrite(BUS_MASTER_LED_PIN, HIGH);
-#elif BOARD_KONTROLLER3
-	BUS_MASTER_LED_OFF();
 #endif	//BOARD_KONTROLLER3A
 	lcdBacklight(1);
 
@@ -893,7 +890,11 @@ void masterInit() {
 	masterUpdateStation(&trainParameter, 0, STATION_ARRIVED);
 
 	busSendTimer = millis() + BUS_SEND_TIMEOUT;
+#if BOARD_KONTROLLER3A
 	digitalWrite(BUS_TX_PIN, HIGH);
+#elif BOARD_KONTROLLER3
+	BUS_RT_TRANSMIT();
+#endif	//BOARD_KONTROLLER3A
 
 #if DEBUG
 	Serial.println(F("trainInfo:"));
@@ -1389,15 +1390,17 @@ void masterUpdateTrainBangla() {
 void slaveInit(Train_Detail_t *td) {
 #if BOARD_KONTROLLER3A
 	digitalWrite(BUS_MASTER_LED_PIN, LOW);
-#elif BOARD_KONTROLLER3
-	BUS_MASTER_LED_OFF();
 #endif	//BOARD_KONTROLLER3A
 	lcdBacklight(1);
 //clear struct
 	td->masterMode = SLAVE_MODE;
 	dataMasterCoachId = "";
 
+#if BOARD_KONTROLLER3A
 	digitalWrite(BUS_TX_PIN, LOW);
+#elif BOARD_KONTROLLER3
+	BUS_RT_RECEIVE();
+#endif	//BOARD_KONTROLLER3A
 
 	lcdPageChange(lcdPageMain);
 }
@@ -1448,10 +1451,15 @@ void coachSetParameter(Train_Detail_t * td, String newName) {
  * *******************************************************************************
  */
 void dataInit() {
+#if BOARD_KONTROLLER3A
 	pinMode(BUS_RX_PIN, OUTPUT);
 	pinMode(BUS_TX_PIN, OUTPUT);
 	digitalWrite(BUS_RX_PIN, LOW);
 	digitalWrite(BUS_TX_PIN, LOW);
+#elif BOARD_KONTROLLER3
+	BUS_RT_INIT();
+	BUS_RT_RECEIVE();
+#endif	//BOARD_KONTROLLER3A
 	BUS_UART.begin(9600);
 #if BOARD_KONTROLLER3A
 	pinMode(BUS_MASTER_LED_PIN, OUTPUT);
@@ -1459,8 +1467,6 @@ void dataInit() {
 	pinMode(DISP_RT_PIN, OUTPUT);
 	digitalWrite(DISP_RT_PIN, HIGH);
 #elif BOARD_KONTROLLER3
-	BUS_MASTER_LED_INIT();
-	BUS_MASTER_LED_OFF();
 	DISP_RT_INIT();
 	DISP_RT_TRANSMIT();
 #endif	//BOARD_KONTROLLER3A
