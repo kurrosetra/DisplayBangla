@@ -9,7 +9,7 @@
  * inserted by the user or by software development tools
  * are owned by their respective copyright owners.
  *
- * COPYRIGHT(c) 2019 STMicroelectronics
+ * COPYRIGHT(c) 2018 STMicroelectronics
  *
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
@@ -65,8 +65,14 @@ UART_HandleTypeDef huart1;
 #endif	//if DEBUG
 
 #define HW_VERSION				"v1.2.3"
-#define SW_VERSION				"v1.5.0"
+#define SW_VERSION				"v1.3.7a"
 #define RUNNING_SPEED			25
+
+#if DISPLAY_OUTDOOR
+#define OE_MIN					((OE_MAX_DUTY * 50) / 1000)
+#else
+#define OE_MIN					((OE_MAX_DUTY * 500) / 1000)
+#endif	//if DISPLAY_OUTDOOR
 
 #define UART_BUFSIZE			1024
 
@@ -87,29 +93,30 @@ typedef struct
 } Ring_Buffer_t;
 
 const char bangladesh_eng[COMMAND_SHORT_BUFSIZE] = "Bangladesh";
-const char railways_eng[COMMAND_SHORT_BUFSIZE] = "Railway";  //updated 18Apr2019
-const char bangladesh_bangla[COMMAND_SHORT_BUFSIZE] = { 18, 12, 64, 145, 12, 15, 129, 80 };  //updated edes 25des2018
-const char railways_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 19, 145, 75, 15, 53 };  //updated edes 25des2018
-
+const char railways_eng[COMMAND_SHORT_BUFSIZE] = "Railways";
+const char bangladesh_bangla[COMMAND_SHORT_BUFSIZE] = { 34, 50, 55, 38, 50, 59, 29, 40 };
+const char railways_bangla[COMMAND_SHORT_BUFSIZE] = { 59, 35, 38, 10, 59, 63 };
 #if DISPLAY_OUTDOOR
-const char to_in_bangla[COMMAND_SHORT_BUFSIZE] =
-{	11, 15, 58, 15, 107, 11};  //updated edes 25des2018
-const char to_in_eng[COMMAND_SHORT_BUFSIZE] =
-{	' ', 't', 'o', ' '};
+const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 6, 59, 28, 59, 56, 6 };
+const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { ' ', 't', 'o', ' ' };
 #endif	//if DISPLAY_OUTDOOR
 
 #if DISPLAY_INDOOR
-const char at_in_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 132, 99, 80, 15, 38, 11 };  //updated edes 25des2018
-const char at_in_eng[COMMAND_SHORT_BUFSIZE] = { 'A', 't', ' ' };
-const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 58, 15, 107, 11 };  //updated edes 25des2018
-const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { 'T', 'o', ' ' };
+const char at_in_bangla[COMMAND_SHORT_BUFSIZE] =
+{	73, 50, 14, 27, 6};
+const char at_in_eng[COMMAND_SHORT_BUFSIZE] =
+{	'A', 't', ' '};
+const char to_in_bangla[COMMAND_SHORT_BUFSIZE] =
+{	64, 50, 51, 17, 18, 6};
+const char to_in_eng[COMMAND_SHORT_BUFSIZE] =
+{	'T', 'o', ' '};
 #endif	//if DISPLAY_INDOOR
 
 //char uartBuffer[UART_BUFSIZE];
 Ring_Buffer_t uartBuffer = { { 0 }, 0, 0, UART_BUFSIZE };
 volatile ITStatus uart1RxReady = RESET;
 volatile uint8_t swapBufferStart = 0;
-volatile uint32_t activeFrameRowAddress = 0;
+volatile uint32_t activeFrameRowAdress = 0;
 volatile uint32_t matrix_row = 0;
 volatile uint32_t matrix_color = 0;
 volatile FlagStatus buttonPress = RESET;
@@ -125,6 +132,10 @@ int16_t xCoachLineEnd = 0;
 int16_t xTrainIdLineEnd = 0;
 const uint32_t ANIMATION_START_TIMEOUT = 1000;
 const uint32_t ANIMATION_RUNNING_TIMEOUT = 35;
+
+const uint32_t OE_MAX_VAL = OE_MAX_DUTY - OE_MIN;
+const uint32_t OE_MIN_VAL = (OE_MAX_DUTY * 85) / 100;
+uint32_t oeCcrVal = OE_MAX_DUTY;
 
 typedef enum
 {
@@ -174,6 +185,8 @@ static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_IWDG_Init(void);
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 /* TODO */
@@ -195,6 +208,7 @@ static void ring_buffer_write(Ring_Buffer_t *buffer, char c);
 static HAL_StatusTypeDef ring_buffer_read(Ring_Buffer_t *buffer, char *c);
 static HAL_StatusTypeDef ring_buffer_readString(Ring_Buffer_t *buffer, char *to, uint16_t size,
 		char start, char end);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 static void delayIwdg(uint32_t _delayTime);
 /* USER CODE END PFP */
@@ -242,7 +256,7 @@ int main(void)
 	HAL_IWDG_Refresh(&hiwdg);
 	/* init data */
 	rgb_init();
-	activeFrameRowAddress = rgb_get_buffer(0);
+	activeFrameRowAdress = rgb_get_buffer(0);
 
 	/* enable tim1 dma */
 	__HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
@@ -250,11 +264,38 @@ int main(void)
 	/* start timer 1 */
 	HAL_TIM_Base_Start(&htim1);
 
-	startDmaTransfering();
+	/* enable tim3 */
+	HAL_TIM_Base_Start_IT(&htim2);
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	htim2.Instance->CCR1 = OE_MAX_VAL;
 
 	__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
 
 	HAL_IWDG_Refresh(&hiwdg);
+
+	while (1)
+	{
+		HAL_IWDG_Refresh(&hiwdg);
+		rgb_frame_clear();
+		rgb_draw_pixel(0, 0, 0b100);
+		rgb_draw_pixel(63, 31, 0b010);
+		swapBufferStart = 1;
+
+		delayIwdg(1000);
+
+		for ( int yPos = 0; yPos < MATRIX_MAX_HEIGHT; yPos++ )
+		{
+			for ( int xPos = 0; xPos < MATRIX_MAX_WIDTH; xPos++ )
+			{
+				rgb_frame_clear();
+				rgb_draw_pixel(xPos, yPos, 0b1);
+				swapBufferStart = 1;
+
+				delayIwdg(10);
+			}
+		}
+
+	}
 
 	sprintf(initDisplay, "Respati");
 	rgb_print(0, 0, initDisplay, strlen(initDisplay), 0b1, 1);
@@ -264,26 +305,6 @@ int main(void)
 	rgb_print(0, 16, initDisplay, strlen(initDisplay), 0b1, 1);
 	swapBufferStart = 1;
 	delayIwdg(2000);
-
-#if DEBUG==1
-	uint32_t millis, fpsTimer = 1000;
-	while (1)
-	{
-		HAL_IWDG_Refresh(&hiwdg);
-		millis = HAL_GetTick();
-
-		if (millis >= fpsTimer)
-		{
-			rgb_frame_clear();
-			sprintf(initDisplay, "fps= %d", fps);
-			rgb_print(0, 0, initDisplay, strlen(initDisplay), 0b1, 2);
-			fps = 0;
-			swapBufferStart = 1;
-
-			fpsTimer = millis + 1000;
-		}
-	}
-#endif	//if DEBUG==1
 
 	/* USER CODE END 2 */
 
@@ -373,18 +394,18 @@ int main(void)
 					layoutTrainID(xTrainNameOffset);
 					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
 					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
-					xTrainNameOffset++;
-					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
-					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
-					xTrainRouteOffset++;
-#elif DISPLAY_INDOOR
-					layoutTrainID(xTrainNameOffset);
-					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
-					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
 						xTrainNameOffset++;
 					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
 					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
 						xTrainRouteOffset++;
+#elif DISPLAY_INDOOR
+					layoutTrainID(xTrainNameOffset);
+					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
+					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
+					xTrainNameOffset++;
+					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
+					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
+					xTrainRouteOffset++;
 #endif	//if DISPLAY_OUTDOOR
 
 					if (xTrainNameEnd <= MATRIX_MAX_WIDTH && xTrainRouteEnd <= MATRIX_MAX_WIDTH)
@@ -508,6 +529,7 @@ static void MX_TIM2_Init(void)
 
 	TIM_ClockConfigTypeDef sClockSourceConfig;
 	TIM_MasterConfigTypeDef sMasterConfig;
+	TIM_OC_InitTypeDef sConfigOC;
 
 	htim2.Instance = TIM2;
 	htim2.Init.Prescaler = OE_PSC;
@@ -526,12 +548,28 @@ static void MX_TIM2_Init(void)
 		_Error_Handler(__FILE__, __LINE__);
 	}
 
+	if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+	{
+		_Error_Handler(__FILE__, __LINE__);
+	}
+
 	sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
 	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
 	if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
 	{
 		_Error_Handler(__FILE__, __LINE__);
 	}
+
+	sConfigOC.OCMode = TIM_OCMODE_PWM1;
+	sConfigOC.Pulse = OE_MAX_DUTY;
+	sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+	sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
+	if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+	{
+		_Error_Handler(__FILE__, __LINE__);
+	}
+
+	HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -565,7 +603,7 @@ static void MX_DMA_Init(void)
 
 	/* DMA interrupt init */
 	/* DMA1_Channel5_IRQn interrupt configuration */
-	HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 5, 0);
+	HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 1, 1);
 	HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
 
 }
@@ -598,7 +636,7 @@ static void MX_GPIO_Init(void)
 	HAL_GPIO_WritePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin, GPIO_PIN_SET);
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(GPIOA, r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin | clk_Pin | oe_Pin,
+	HAL_GPIO_WritePin(GPIOA, r1_Pin | g1_Pin | b1_Pin | r2_Pin | g2_Pin | b2_Pin | clk_Pin,
 			GPIO_PIN_RESET);
 
 	/*Configure GPIO pin Output Level */
@@ -645,13 +683,6 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : oe_Pin */
-	GPIO_InitStruct.Pin = oe_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(oe_GPIO_Port, &GPIO_InitStruct);
-
 }
 
 /* USER CODE BEGIN 4 */
@@ -682,12 +713,9 @@ static void layoutCoachName(uint8_t len)
 		//xtr1
 		rgb_write(0, 0, infoDisplay.coachName[0], 0b1, 2);
 		rgb_write(12, 0, infoDisplay.coachName[1], 0b1, 2);
-		rgb_write(0, 16, infoDisplay.coachName[2], 0b1, 2);
+		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
 		rgb_write(12, 16, infoDisplay.coachName[3], 0b1, 2);
-//		rgb_write(24, 0, infoDisplay.coachName[2], 0b1, 2);
-//		rgb_write(12, 16, infoDisplay.coachName[3], 0b1, 2);
-//		xCoachLineEnd = 38;
-		xCoachLineEnd = 26;
+		xCoachLineEnd = 38;
 	}
 	else if (len == 5)
 	{
@@ -838,11 +866,11 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 		{
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
-				x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b1, 2,
-						xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
-				x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b1, 2,
-						xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.name,
 					strlen(infoDisplay.stationInfo.name), 0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH,
@@ -854,11 +882,11 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 		{
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
-				x1 = rgb_bangla_print_constrain(x, 16, (char*) at_in_bangla, strlen(at_in_bangla),
-						0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) at_in_bangla, strlen(at_in_bangla),
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
-				x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-						0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.name,
 					strlen(infoDisplay.stationInfo.name), 0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH,
@@ -941,7 +969,7 @@ static void layoutDisconnected(uint8_t * lang)
 #endif	//if DISPLAY_INDOOR
 
 		rgb_print(xPos, 0, (char *) bangladesh_eng, strlen(bangladesh_eng), 0b1, 2);
-		rgb_print(xPos + 16, 16, (char *) railways_eng, strlen(railways_eng), 0b1, 2);
+		rgb_print(xPos + 12, 16, (char *) railways_eng, strlen(railways_eng), 0b1, 2);
 
 		*lang = 0;
 	}
@@ -1161,13 +1189,7 @@ static void parseStringBangla(char *str, uint16_t size)
 			if (u8a > 0)
 			{
 				u8b = 0;
-				if (u8a > 2)
-				{
-					u8b = char_to_byte(buf[0]) * 100;
-					u8b += char_to_byte(buf[1]) * 10;
-					u8b += char_to_byte(buf[2]);
-				}
-				else if (u8a > 1)
+				if (u8a > 1)
 				{
 					u8b = char_to_byte(buf[0]) * 10;
 					u8b += char_to_byte(buf[1]);
@@ -1199,28 +1221,12 @@ static void parseBangla(CMD_HandleTypeDef *cmd)
 
 static void startDmaTransfering()
 {
-	HAL_DMA_Start_IT(&hdma_tim1_up, activeFrameRowAddress, (uint32_t) &DATA_GPIO->ODR, FRAME_SIZE);
+	HAL_DMA_Start_IT(&hdma_tim1_up, activeFrameRowAdress, (uint32_t) &DATA_GPIO->ODR, FRAME_SIZE);
 }
+
 static void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
 {
-	/* clear clk & data */
-	DATA_GPIO->BSRR = DATA_BSRR_CLEAR;
-
-	/* set oe & stb high */
-	oe_GPIO_Port->BSRR = oe_Pin;
-	stb_GPIO_Port->BSRR = stb_Pin;
-	CONTROL_GPIO->ODR = (matrix_row << CONTROL_SHIFTER);
-	/* add 3 clk to enable STB/LAT effect */
-	clk_GPIO_Port->BSRR = clk_Pin;
-	clk_GPIO_Port->BSRR = DATA_BSRR_CLK_CLEAR;
-	clk_GPIO_Port->BSRR = clk_Pin;
-	clk_GPIO_Port->BSRR = DATA_BSRR_CLK_CLEAR;
-	clk_GPIO_Port->BSRR = clk_Pin;
-	clk_GPIO_Port->BSRR = DATA_BSRR_CLK_CLEAR;
-
-	/* set oe & stb LOW */
-	stb_GPIO_Port->BSRR = CONTROL_BSRR_STB_CLEAR;
-	oe_GPIO_Port->BSRR = DATA_BSRR_OE_CLEAR;
+	DATA_GPIO->BSRR = DATA_BSSR_CLEAR;
 
 	/* update matrix row */
 	if (++matrix_row >= MATRIX_SCANROW)
@@ -1237,18 +1243,17 @@ static void dmaTransferCompleted(DMA_HandleTypeDef *hdma)
 #endif	//if DEBUG
 
 	}
-	activeFrameRowAddress = rgb_get_buffer(matrix_row);
+	activeFrameRowAdress = rgb_get_buffer(matrix_row);
 
-	/* add delay to display */
-	/* enable tim2 */
-	htim2.Instance->CNT = 0;
-	HAL_TIM_Base_Start_IT(&htim2);
-
+	/* set stb low */
+	CONTROL_GPIO->BSRR = CONTROL_BSSR_STB_CLEAR;
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	HAL_TIM_Base_Stop_IT(&htim2);
+	/* set stb high */
+	/* set matrix row */
+	CONTROL_GPIO->ODR = (matrix_row << CONTROL_SHIFTER) | stb_Pin;
 	startDmaTransfering();
 }
 
