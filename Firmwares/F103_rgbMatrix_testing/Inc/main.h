@@ -44,7 +44,7 @@
 /* Includes ------------------------------------------------------------------*/
 
 /* USER CODE BEGIN Includes */
-#include "config.h"
+
 /* USER CODE END Includes */
 
 /* Private define ------------------------------------------------------------*/
@@ -52,7 +52,7 @@
 #define CLK_ARR 11
 #define CLK_MAX_DUTY (CLK_ARR + 1)
 #define OE_PSC 0
-#define OE_ARR 17999
+#define OE_ARR 14399
 #define OE_MAX_DUTY (OE_ARR + 1)
 #define IWDG_1S 625
 #define CMD_BAUD 38400
@@ -94,16 +94,6 @@
 /* #define USE_FULL_ASSERT    1U */
 
 /* USER CODE BEGIN Private defines */
-#if MATRIX_SCANROW==16
-#undef OE_PSC
-#undef OE_ARR
-#undef OE_MAX_DUTY
-
-#define OE_PSC 0
-#define OE_ARR 7999
-#define OE_MAX_DUTY (OE_ARR + 1)
-
-#endif	//if MATRIX_SCANROW==16
 
 /* USER CODE END Private defines */
 
