@@ -56,7 +56,7 @@ void rgb_frame_clear()
 void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 {
 	uint8_t busNumber = 0;
-	uint16_t row, lines;
+	uint16_t row, cols;
 	uint8_t rgbVal = 0;
 	uint8_t bufferIndex = 0;
 #if MATRIX_SCANROW==MATRIX_SCANROWS_8
@@ -87,6 +87,20 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 	if ((x >= 0 && x < MATRIX_MAX_WIDTH) && (y >= 0 && y < MATRIX_MAX_HEIGHT))
 	{
 #if MATRIX_SCANROW==MATRIX_SCANROWS_8
+#if P5_NEW==1
+		row = y % 8;
+
+		uint16_t y1 = y % 16;
+		uint16_t x1 = x / MATRIX_PANEL_WIDTH;
+		uint16_t x2 = x % MATRIX_PANEL_WIDTH;
+		if (y1 >= 8)
+			cols = (MATRIX_PANEL_WIDTH * 2 * x1) + x2;
+		else
+			cols = (MATRIX_PANEL_WIDTH * 2 * x1) + MATRIX_PANEL_WIDTH + x2;
+
+		if (y >= 16)
+			busNumber = 8;
+#else
 		y_segment = y;
 		if (y >= MATRIX_PANEL_HEIGHT / 2)
 		{
@@ -97,20 +111,21 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 		if (y_segment >= 8)
 		{
 			row = y_segment - 8;
-			lines = (x / 8) * 16 + x % 8;
+			cols = (x / 8) * 16 + x % 8;
 		}
 		else
 		{
 			row = y_segment;
-			lines = (x / 8) * 16 + (15 - x % 8);
+			cols = (x / 8) * 16 + (15 - x % 8);
 		}
+#endif	//if P5_NEW==1
 
 #endif	//if MATRIX_SCANROW==MATRIX_SCANROWS_8
 #if MATRIX_SCANROW==MATRIX_SCANROWS_16
 		row = y % 16;
-		lines = x;
+		cols = x;
 		if (y >= MATRIX_PANEL_HEIGHT / 2)
-			busNumber = 8;
+		busNumber = 8;
 #endif	//if MATRIX_SCANROW==MATRIX_SCANROWS_16
 
 		/* TODO handle color*/
@@ -119,8 +134,8 @@ void rgb_draw_pixel(int16_t x, int16_t y, uint8_t color)
 		else
 			rgbVal = color << 3;
 
-		frameBuffer[bufferIndex][row][lines * 2] |= rgbVal;
-		frameBuffer[bufferIndex][row][lines * 2 + 1] |= rgbVal | clk_Pin;
+		frameBuffer[bufferIndex][row][cols * 2] |= rgbVal;
+		frameBuffer[bufferIndex][row][cols * 2 + 1] |= rgbVal | clk_Pin;
 
 	}
 }
