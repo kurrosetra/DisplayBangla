@@ -10,10 +10,14 @@
 
 #include "stm32f1xx.h"
 
-#define DISPLAY_OUTDOOR				0
+#define DISPLAY_OUTDOOR				1
 #if DISPLAY_OUTDOOR==0
 #define DISPLAY_INDOOR				1
 #endif	//if DISPLAY_OUTDOOR==0
+
+#if DISPLAY_OUTDOOR==1
+#	define P5_NEW					1
+#endif	//if DISPLAY_OUTDOOR==1
 
 #define FRAME_ORIENTATION_1			1
 #define FRAME_ORIENTATION_2			2
