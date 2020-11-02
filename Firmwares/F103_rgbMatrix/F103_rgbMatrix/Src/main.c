@@ -92,17 +92,19 @@ const char bangladesh_bangla[COMMAND_SHORT_BUFSIZE] = { 18, 12, 64, 145, 12, 15,
 const char railways_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 19, 145, 75, 15, 53 };  //updated edes 25des2018
 
 #if DISPLAY_OUTDOOR
-const char to_in_bangla[COMMAND_SHORT_BUFSIZE] =
-{	11, 15, 58, 15, 107, 11};  //updated edes 25des2018
-const char to_in_eng[COMMAND_SHORT_BUFSIZE] =
-{	' ', 't', 'o', ' '};
+const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 11, 15, 58, 15, 107, 11 };  //updated edes 25des2018
+const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { ' ', 't', 'o', ' ' };
 #endif	//if DISPLAY_OUTDOOR
 
 #if DISPLAY_INDOOR
-const char at_in_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 168, 80, 15, 38, 11 };  //updated edes 31Okt2020
-const char at_in_eng[COMMAND_SHORT_BUFSIZE] = { 'A', 't', ' ' };
-const char to_in_bangla[COMMAND_SHORT_BUFSIZE] = { 15, 58, 15, 107, 11 };  //updated edes 25des2018
-const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { 'T', 'o', ' ' };
+const char at_in_bangla[COMMAND_SHORT_BUFSIZE] =
+{	15, 168, 80, 15, 38, 11};  //updated edes 31Okt2020
+const char at_in_eng[COMMAND_SHORT_BUFSIZE] =
+{	'A', 't', ' '};
+const char to_in_bangla[COMMAND_SHORT_BUFSIZE] =
+{	15, 58, 15, 107, 11};  //updated edes 25des2018
+const char to_in_eng[COMMAND_SHORT_BUFSIZE] =
+{	'T', 'o', ' '};
 #endif	//if DISPLAY_INDOOR
 
 //char uartBuffer[UART_BUFSIZE];
@@ -374,18 +376,18 @@ int main(void)
 					layoutTrainID(xTrainNameOffset);
 					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
 					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
-					xTrainNameOffset++;
-					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
-					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
-					xTrainRouteOffset++;
-#elif DISPLAY_INDOOR
-					layoutTrainID(xTrainNameOffset);
-					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
-					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
 						xTrainNameOffset++;
 					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
 					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
 						xTrainRouteOffset++;
+#elif DISPLAY_INDOOR
+					layoutTrainID(xTrainNameOffset);
+					xTrainNameEnd = layoutTrainName(xTrainNameOffset);
+					if (xTrainNameEnd >= MATRIX_MAX_WIDTH)
+					xTrainNameOffset++;
+					xTrainRouteEnd = layoutTrainRoute(xTrainRouteOffset);
+					if (xTrainRouteEnd >= MATRIX_MAX_WIDTH)
+					xTrainRouteOffset++;
 #endif	//if DISPLAY_OUTDOOR
 
 					if (xTrainNameEnd <= MATRIX_MAX_WIDTH && xTrainRouteEnd <= MATRIX_MAX_WIDTH)
@@ -839,11 +841,11 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 		{
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
-				x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b1, 2,
-						xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_print_constrain(x, 16, (char*) at_in_eng, strlen(at_in_eng), 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
-				x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b1, 2,
-						xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_print_constrain(x, 16, (char*) to_in_eng, strlen(to_in_eng), 0b1, 2,
+					xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_print_constrain(x, 16, infoDisplay.stationInfo.name,
 					strlen(infoDisplay.stationInfo.name), 0b1, 2, xCoachLineEnd, MATRIX_MAX_WIDTH,
@@ -855,11 +857,11 @@ static int16_t layoutTrainRoute(int16_t xOffset)
 		{
 			x = xCoachLineEnd - xOffset;
 			if (infoDisplay.stationInfo.state == STATION_ARRIVED)
-				x1 = rgb_bangla_print_constrain(x, 16, (char*) at_in_bangla, strlen(at_in_bangla),
-						0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) at_in_bangla, strlen(at_in_bangla),
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			else
-				x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
-						0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
+			x1 = rgb_bangla_print_constrain(x, 16, (char*) to_in_bangla, strlen(to_in_bangla),
+					0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH, 16, MATRIX_MAX_HEIGHT);
 			x += x1;
 			x1 = rgb_bangla_print_constrain(x, 16, infoDisplay.stationInfo.name,
 					strlen(infoDisplay.stationInfo.name), 0b1, 1, xCoachLineEnd, MATRIX_MAX_WIDTH,
