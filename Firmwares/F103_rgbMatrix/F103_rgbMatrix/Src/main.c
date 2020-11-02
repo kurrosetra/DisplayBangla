@@ -65,7 +65,7 @@ UART_HandleTypeDef huart1;
 #endif	//if DEBUG
 
 #define HW_VERSION				"v1.2.3"
-#define SW_VERSION				"v1.5.1"
+#define SW_VERSION				"v1.5.2"
 #define RUNNING_SPEED			25
 
 #define UART_BUFSIZE			1024
@@ -98,7 +98,7 @@ const char to_in_eng[COMMAND_SHORT_BUFSIZE] = { ' ', 't', 'o', ' ' };
 
 #if DISPLAY_INDOOR
 const char at_in_bangla[COMMAND_SHORT_BUFSIZE] =
-{	15, 132, 99, 80, 15, 38, 11};  //updated edes 25des2018
+{	15, 168, 80, 15, 38, 11};  //updated edes 31Okt2020
 const char at_in_eng[COMMAND_SHORT_BUFSIZE] =
 {	'A', 't', ' '};
 const char to_in_bangla[COMMAND_SHORT_BUFSIZE] =
